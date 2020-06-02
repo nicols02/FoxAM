@@ -1,5 +1,11 @@
+#run this app from GitHub by typing the commands:
+#shiny::runGitHub( "FoxAM", "nicols02")
+
 library(shiny)
 library(shinyMatrix)
+#install.packages('ggplot2')
+library(ggplot2)
+
 source("generate_transition_matrices.R", local=TRUE)#local=environment() )
 
 
@@ -104,7 +110,7 @@ ui <- fluidPage(
 ##########################################
 #write server#
 server <- function(input, output) {
-
+  
   df_all <- reactive({
     true.model <- c(input$foxModLabel, input$spModLabel)
     initialState <- c("HighF", "LowSp", "HighF", true.model[1], true.model[2])

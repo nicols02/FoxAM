@@ -703,10 +703,10 @@ prepare.plot <- function(benefitRatio, nSims, maxT, true.model, initialState,Tra
   #actions.list <- c( "do_nothing", "a5")
   #Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2)
   
-  library(ggplot2)
-  library(reshape2)
+  #library(ggplot2)
+  #library(reshape2)
   #library(svglite)
-  library(gridExtra)
+  #library(gridExtra)
   #library(readr)
   
   n.Foxmodels <- 9
