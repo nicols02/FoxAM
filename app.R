@@ -5,6 +5,7 @@ library(shiny)
 library(shinyMatrix)
 #install.packages('ggplot2')
 library(ggplot2)
+library(reshape2)
 
 source("generate_transition_matrices.R", local=TRUE)#local=environment() )
 
