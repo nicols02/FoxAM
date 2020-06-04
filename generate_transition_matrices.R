@@ -22,7 +22,9 @@
 
 
 #data-- to be imported from Shiny or Excel later
-specMatInit <- matrix(data= c(0.02, 0.3, 0.015, 0.35, 0.05, 0.25, 0.025, 0.3, 0.15, 0.1, 0.1, 0.15), nrow=6, ncol=2, byrow=TRUE)
+#specMatInit <- matrix(data= c(0.02, 0.3, 0.015, 0.35, 0.05, 0.25, 0.025, 0.3, 0.15, 0.1, 0.1, 0.15), nrow=6, ncol=2, byrow=TRUE)
+
+specMatInit <- matrix(data= c(0.02, 0.8, 0.015, 0.8, 0.05, 0.25, 0.025, 0.3, 0.15, 0.02, 0.1, 0.01), nrow=6, ncol=2, byrow=TRUE)
 threatMat1 <- matrix(data= c(0.875, 0.283333, 0.866667, 0.3), nrow=2, ncol=2) #values obtained from experts (AM_elicitation_combined.xlsx)
 threatMat2 <- matrix(data= c(0.433333333,	0.566666667,	0.666666667,	0.675, 0.816666667, 0.866666667,
                              0.425,	0.525,	0.616666667,	0.658333333,	0.791666667,	0.883333333),
@@ -585,9 +587,9 @@ getStationaryT <- function(P){
 #' outputs: a list object containing simulation outcomes under different strategies
 #' @example 
 #' initialState <-  c("HighF", "LowSp", "HighF", "F1", "S1")
-#' action <- "a5"
+#'' action <- "a5"
 #' maxT <- 30
-#' benefitRatio <- c(-20,0,0)
+#' benefitRatio <- c(-20,0,0)'
 #' simulate_trajectory(initialState, action, Transition.matrices, maxT, benefitRatio)
 simulate_trajectory <- function(initialState, action, Transition.matrices, maxT, benefitRatio){
   
@@ -791,5 +793,10 @@ prepare.plot <- function(benefitRatio, nSims, maxT, true.model, initialState,Tra
   # plotdf.all <- plotdf.all+ labs(color='Action') 
   # print(plotdf.all)
   
+
+
+actions.list <- c( "do_nothing", "a5")
+Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2)
+
   
   

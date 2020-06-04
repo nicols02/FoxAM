@@ -1,11 +1,33 @@
 #run this app from GitHub by typing the commands:
+#install.packages('shiny')
+#install.packages('shinyMatrix')
+#install.packages('ggplot2')
+#install.packages('reshape2')
 #shiny::runGitHub( "FoxAM", "nicols02")
 
-library(shiny)
-library(shinyMatrix)
-#install.packages('ggplot2')
-library(ggplot2)
-library(reshape2)
+#check if required packages are installed, if not, install and attach to the library
+if (library(shiny,logical.return=TRUE)==FALSE) {
+  install.packages("shiny")
+  library("shiny")
+}
+if (library(shinyMatrix,logical.return=TRUE)==FALSE) {
+  install.packages("shinyMatrix")
+  library("shinyMatrix")
+}
+if (library(ggplot2,logical.return=TRUE)==FALSE) {
+  install.packages("ggplot2")
+  library("ggplot2")
+}
+if (library(reshape2,logical.return=TRUE)==FALSE) {
+  install.packages("reshape2")
+  library("reshape2")
+}
+
+
+# library(shiny)
+# library(shinyMatrix)
+# library(ggplot2)
+# library(reshape2)
 
 source("generate_transition_matrices.R", local=TRUE)#local=environment() )
 
@@ -14,7 +36,9 @@ source("generate_transition_matrices.R", local=TRUE)#local=environment() )
 #clean/empty matrix
 specMatInit <- matrix(data=0, nrow= 6, ncol=2)
 #prefilled for species threat (currently just made up for demonstration)
-specMatInit <- matrix(data= c(0.02, 0.3, 0.015, 0.35, 0.05, 0.25, 0.025, 0.3, 0.15, 0.1, 0.1, 0.15), nrow=6, ncol=2, byrow=TRUE)
+#specMatInit <- matrix(data= c(0.02, 0.3, 0.015, 0.35, 0.05, 0.25, 0.025, 0.3, 0.15, 0.1, 0.1, 0.15), nrow=6, ncol=2, byrow=TRUE)
+specMatInit <- matrix(data= c(0.02, 0.8, 0.015, 0.8, 0.05, 0.25, 0.025, 0.3, 0.15, 0.02, 0.1, 0.01), nrow=6, ncol=2, byrow=TRUE)
+
 colnames(specMatInit) <- c("P(Extinct)", "P(High)")
 rownames(specMatInit) <- c("(Not Present, Low)",
                            "(Not Present, High)",
@@ -88,7 +112,7 @@ ui <- fluidPage(
       
 
       radioButtons("foxModLabel", "Fox Model", foxModel.names, selected = "F9", inline = TRUE),
-      radioButtons("spModLabel", "Species Model", speciesModel.names, selected = "S3", inline=TRUE),
+      radioButtons("spModLabel", "Species Model", speciesModel.names, selected = "S2", inline=TRUE),
       
       checkboxGroupInput("actionLabel", "Simulated Actions", choices= actions.list,
                          selected = c("do_nothing", "a5"), width = NULL)
