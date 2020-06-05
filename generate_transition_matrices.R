@@ -53,6 +53,7 @@ create.reward.table <- function(benefitRatio= c(-20,1,10), CostRatio= c(0,0.5,1,
 #' @param specMatInit The species matrix obtained from the Shiny App
 #' @param threatMat1 The first threat matrix obtained from the Shiny App
 #' @param threatMat2 The second threat matrix obtained from the Shiny App
+#' @param recoverProb Allow a recovery prob-- the prob of moving from extinct to lowSp state
 #' @return An R list object containing the 9 Fox model transition matrices and the 3 Species transition matrices
 #' @examples
 #' specMatInit <- matrix(data= c(0.02, 0.3, 0.015, 0.35, 0.05, 0.25, 0.025, 0.3, 0.15, 0.1, 0.1, 0.15), nrow=6, ncol=2, byrow=TRUE)
@@ -61,9 +62,9 @@ create.reward.table <- function(benefitRatio= c(-20,1,10), CostRatio= c(0,0.5,1,
 #'                             0.425,	0.525,	0.616666667,	0.658333333,	0.791666667,	0.883333333),
 #'                     nrow=2, ncol=6) #values obtained from experts (AM_elicitation_combined.xlsx)
 #' Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2)
-get.transition <- function(specMatInit, threatMat1, threatMat2){
+get.transition <- function(specMatInit, threatMat1, threatMat2, recoverProb){
   
-  recoverProb <- 0  #set a recovery probability-- the prob of moving from extinct to lowSp (default 0)
+  #recoverProb <- 0  #set a recovery probability-- the prob of moving from extinct to lowSp (default 0)
   
   #use a matrix to determine the effectiveness of actions for the 9 threat models
   #This might need to be revised later-- problem dependent
@@ -795,8 +796,8 @@ prepare.plot <- function(benefitRatio, nSims, maxT, true.model, initialState,Tra
   
 
 
-actions.list <- c( "do_nothing", "a5")
-Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2)
+#actions.list <- c( "do_nothing", "a5")
+#Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2, recoverProb)
 
   
   

@@ -65,7 +65,7 @@ rownames(threatMat2) <- c("(Stable, Low)", "(Decreasing, Low)")
 
 
 #add some variables-- we can make these reactive later
-benefitRatio= c(-20,0,0)
+
 n.Foxmodels <- 9
 n.Speciesmodels <- 3
 foxModel.names <- paste("F",1:n.Foxmodels, sep="")
@@ -82,6 +82,9 @@ ui <- fluidPage(
     sidebarPanel( width= 6,
       div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("maxT", "Length of simulation",value=20,min=1, max=NA, step=1)),
       div(style="display: inline-block;vertical-align:top; width: 180px;",numericInput("nSims", "Number of simulations",value=30,min=1, max=NA, step=1)),
+      br(),            #line break
+      div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("recoverProb", "Recovery Prob",value=0,min=0, max=1, step=0.1)),
+      div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("costExt", "Cost of Extinction",value=20,min=0, max=NA, step=1)),
       br(),            #line break
       #numericInput("maxT", "Length of simulation",value=20,min=1, max=NA, step=1, width= '100px'),
       #numericInput("nSims", "Number of simulations",value=30,min=1, max=NA, step=1, width= '100px'),
@@ -137,10 +140,12 @@ ui <- fluidPage(
 server <- function(input, output) {
   
   df_all <- reactive({
+    benefitRatio= c(-input$costExt,0,0)
+    
     true.model <- c(input$foxModLabel, input$spModLabel)
     initialState <- c("HighF", "LowSp", "HighF", true.model[1], true.model[2])
     
-    Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a)
+    Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb)
     #create the df for ggplot
     
     
