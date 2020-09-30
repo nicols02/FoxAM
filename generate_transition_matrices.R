@@ -690,6 +690,9 @@ simulate.action <- function(nSims, maxT, initialState, action, Transition.matric
 #'output is a dataframe df_all, that is ready for plotting in ggplot
 prepare.plot <- function(benefitRatio, CostRatio, nSims, maxT, true.model, initialState,Transition.matrices, actions.list){
   
+  #file name of the MOMDP solution (if it exists-- will check later)
+  outfileName <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+  
   #actions.list <- c( "do_nothing", "a5")
   #Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2)
   
@@ -760,8 +763,430 @@ prepare.plot <- function(benefitRatio, CostRatio, nSims, maxT, true.model, initi
     colnames(df_incr)[1] <- "action"
     df_all <- rbind(df_all, df_incr)
   }
+  
+  if (file.exists(outfileName)){  #if the MOMDP has been solved already, plot the MOMDP simulation
+    action <- "Optimal MOMDP"
+    
+    set.seed(1234)
+    out <- simulate.MOMDP(nSims, maxT, initialState, initialBelief, policy, Transition.matrices, benefitRatio)
+
+    
+    mean.Sims <- as.data.frame(out[[1]])[,-(3:4)]  #mean values; drop the fox and species models since these don't change anyway
+    lower.Sims <- as.data.frame(out[[3]])[,-(3:4)] #also drop the foxPrev and speciesPrev values--  same as fox and species but with lag t=1
+    upper.Sims <- as.data.frame(out[[4]])[,-(3:4)]
+    mean.Sims <- cbind(1:nrow(mean.Sims), mean.Sims)
+    lower.Sims <- cbind(1:nrow(mean.Sims), lower.Sims)
+    upper.Sims <- cbind(1:nrow(mean.Sims), upper.Sims)
+    colnames(mean.Sims) <- c("time", varnames[-(3:4)], "sum_reward")
+    colnames(lower.Sims) <- c("time",paste(varnames[-(3:4)],"_lower", sep=""), "sum_reward")
+    colnames(upper.Sims) <- c("time",paste(varnames[-(3:4)],"_upper", sep=""), "sum_reward")
+    
+    #simulate.action uses the getStateInd function to convert labelled states into numerics. 
+    #getStateInd maps the labelled states as follows: HighF -> 1; LowF -> 2; LocExtSp -> 1; LowSp -> 2; HighSp -> 3
+    #for plotting, it's easier if the fox states are mapped st HighF->2; LowF ->1
+    #I'll convert these over now (the function y= -x+3 will change the states as reqd):
+    mean.Sims[,2] <- -mean.Sims[,2] +3
+    lower.Sims[,2] <- -lower.Sims[,2] +3
+    upper.Sims[,2] <- -upper.Sims[,2] +3
+    
+    #require(reshape2)
+    df <- melt(mean.Sims ,  id.vars = 'time', variable.name = 'series')
+    df2 <- melt(lower.Sims ,  id.vars = 'time', variable.name = 'series')
+    df3 <- melt(upper.Sims ,  id.vars = 'time', variable.name = 'series')
+    df <- cbind(df, df2$value,df3$value)
+    colnames(df)[3:5] <- c("mean", "lower", "upper")
+    
+    
+    df_incr <- cbind(rep(action, times= nrow(df)), df) #incrementally store the outputs for each action in a dataframe for plotting outside the loop
+    colnames(df_incr)[1] <- "action"
+    df_all <- rbind(df_all, df_incr)  #bind the MOMDP simulation results to the others
+  }
+  
   return(df_all)
 }
+
+
+########### belief updating functions  ##
+#read.policy is a function that reads a sarsop .policy file and formats it into an R dataframe
+#' @param filename is a pointer to the file name where the .policy file is stored
+#' @example
+#' outfileName <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+#' policy <- read.policy(outfileName)
+read.policy <- function(filename){
+  alphavectors.dat <- read.table(filename, sep="\t", header=FALSE, stringsAsFactors = FALSE)
+  alphavectors.dat <- alphavectors.dat$V1[-(1:3)] #drop the 3 preamble lines
+  alphavectors.dat <- alphavectors.dat[-length(alphavectors.dat)] #drop the end line
+  alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)  gsub(">", ">  ", alphavectors.dat[i], fixed=TRUE)) #adds a tab between the > and the first alpha vector value
+  alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)   strsplit(alphavectors.dat[i], "\\s+"))
+  alphavectors.dat <-data.frame(matrix(unlist(alphavectors.dat), nrow=length(alphavectors.dat), byrow=T), stringsAsFactors = FALSE)
+  alphavectors.dat <- alphavectors.dat[,-c(1,ncol(alphavectors.dat))]
+  alphavectors.dat[,1] <- gsub("action=", "", alphavectors.dat[,1])
+  alphavectors.dat[,2] <- gsub("obsValue=", "",alphavectors.dat[,2]) 
+  alphavectors.dat[,2] <- gsub(">", "",alphavectors.dat[,2])
+  alphavectors.dat <- data.frame(sapply(alphavectors.dat, as.numeric))
+  colnames(alphavectors.dat)[1:2] <- c("action", "obsValue")
+  return(alphavectors.dat) 
+}
+
+
+#' getLongFormatBelief converts a marginal belief into a long format belief
+#' @param initThreatBel is a nFoxModel-element vector containing the belief in each fox model. It must sum to 1
+#' @param initSpeciesBel is a nSpeciesModel-element vector containing the belief in each species model. It must sum to 1
+#' @example
+#' n.Foxmodels <- 9
+#' n.Speciesmodels <- 3
+#' initThreatBel <- matrix(data=rep(1/n.Foxmodels, times= n.Foxmodels), nrow=1, ncol= n.Foxmodels) #assume initial belief is uniform for prefill, allow reactive later
+#' initSpeciesBel <-  matrix(data=(1/n.Speciesmodels), nrow=1, ncol= n.Speciesmodels) 
+#' longBel <- getLongFormatBelief(initThreatBel, initSpeciesBel)
+getLongFormatBelief <- function(initThreatBel, initSpeciesBel){
+  nSpeciesMods <- length(initSpeciesBel)
+  nThreatMods <- length(initThreatBel)
+  longBel <- vector(mode= "numeric", length= nThreatMods*nSpeciesMods)
+  for (s in 1:nSpeciesMods){
+    for (t in 1:nThreatMods){
+      longBel[(s-1)*nThreatMods+t] <- initThreatBel[t]*initSpeciesBel[s]
+    }
+  }
+  return(longBel)
+}
+
+
+#getOptAction is a function that extracts the optimal action for a given belief state and sarsop policy solution data frame
+#inputs:
+#policy- a sarsop policy file, formatted as an R dataframe with read.policy
+#belief- a (n.FoxModels*n.SpeciesModels)X1 numeric belief vector
+getOptAction <- function(policy, belief, n.actions){
+  actionNames <- c( "do_nothing", sapply(1:(n.actions-1), function(i) paste("a",i, sep="")))
+  alphavects <- policy[,-(1:2)]
+  V <- as.matrix(alphavects) %*% belief
+  optAction <- policy$action[which.max(V)]+1 #+1 because sarsop indexes actions from zero
+  optAction<- actionNames[optAction] 
+  return(optAction)
+}
+
+#write a function that does belief updates (following the formulae in Martin Peron's AAAI-17 paper
+#Fast-tracking stationary MOMDPs for adaptive management problems ). The belief update is given in eqn 5.
+#since our observation function is just the identity matrix, we have:
+#b_(t+1,y')= N* P(x'|x,y,a)b(t,y'). For each of the possible models y', this means we update the belief
+#by simply multiplying the current belief by the probability of the observed transition between states.
+#inputs: 
+#initialBelief: the initial belief vector (a n.modelsx1 numeric vector containing the probability of each hidden model F1-9 and S1-3)
+#prevState: the state at time t (current time); this is a 2x1 vector e.g. c("HighF"  "LowSp")
+#nextState: the state at time t+1 (next time): a 2x1 vector containing the observed state in the next timestep, e.g c("HighF"  "HighSp")
+#outputs:
+#newBelief: the updated belief vector (n.modelsx1 numeric vector)
+updateBelief <- function(initialBelief, prevState, nextState, action,Transition.matrices){
+  #get probability of transition between prevState and nextState
+  foxModelNames <- sapply(1:(n.Foxmodels), function(i) paste("F",i, sep=""))
+  specModelNames <- sapply(1:(n.Speciesmodels), function(i) paste("S",i, sep=""))
+  
+  beliefOut <- vector(mode="numeric", length= length(initialBelief))
+  for (s in 1: n.Speciesmodels){
+    for (f in 1:n.Foxmodels){
+      prevState[3:4] <- c(foxModelNames[f], specModelNames[s]) #assign the relevant model index here
+      nextState[3:4] <- prevState[3:4]
+      i <- f +(s-1)*n.Foxmodels
+      statetransPr <- getprobT(prevState, nextState, action, Transition.matrices) #get the transiton prob assuming a particular model
+      beliefOut[i] <- statetransPr* initialBelief[i] #multiply prob of transition (given a model) by the belief in the model
+    }
+  }
+  beliefOut <- beliefOut/sum(beliefOut)
+  return(beliefOut)
+}
+
+
+#extract.ModelBelief is a function that finds the marginal belief of a model from the joint probability of
+#fox and species models (because fox and species models are independent, i.e. P(F_i,S_i)= P(F_i)P(S_i|F_i))
+#Using this, we have that, e.g., P(F_i, S)= sum_j{F_i,S_j} for all j.
+#inputs: 
+#modName= a string containing the model name, e.g. "F1" -> "F9" or "S1"-> "S3"
+#belief= a (nFoxModels * n.SpeciesModels)x1 numeric vector containing the belief in each (joint) model
+#outputs:
+#a (nFoxModelsx1) or (nSpeciesModelsx1) numeric vector containing the belief in the model 'modName'
+extract.ModelBelief <- function(modName, belief){
+  
+  foxModel.names <- paste("F",1:n.Foxmodels, sep="")
+  speciesModel.names <- paste("S",1:n.Speciesmodels, sep="")
+  
+  #enumerate the (presumed--not sure how sarsop orders models) model ordering
+  spM.enum <- rep(speciesModel.names, times= (n.Foxmodels))
+  fM.enum <- as.vector(sapply(1:n.Foxmodels, function(i) rep(foxModel.names[i], times= (n.Speciesmodels))))
+  models.enum <- sapply(1:length(fM.enum), function(i) paste(fM.enum[i], spM.enum[i], sep="_"))
+  
+  modtype <- substr(modName,1,1)
+  modnum <- as.numeric(substr(modName,2,2))
+  
+  #extract the indices that match modName
+  if (modtype== "F"){
+    models.match <- which(substr(models.enum,1,2)== modName) #fox models are listed in first two elements of model enum
+    bel.modName <- sum(belief[models.match])  
+  } else if (modtype== "S"){
+    models.match <- which(substr(models.enum,4,5)== modName) #fox models are listed in first two elements of model enum
+    bel.modName <- sum(belief[models.match])  
+  }
+  return(bel.modName)
+}
+
+#extract.modelBelief2 is a function that wraps extract.ModelBelief, returning the beliefs in all of the models for a given
+#belief state
+#inputs:
+#belief= a (nFoxModels * n.SpeciesModels)x1 numeric vector containing the belief in each (joint) model
+#outputs:
+#a 2-element list containing:
+# 1: a (nFoxModelsx1) numeric vector containing the belief in each fox model
+# 2: a (nSpeciesModelsx1) numeric vector containing the belief in each species model
+extract.modelBelief2 <- function(belief){
+  #spM.enum <- speciesModel.names#rep(speciesModel.names, times= (n.Foxmodels))
+  #fM.enum <- foxModel.names#as.vector(sapply(1:n.Foxmodels, function(i) rep(foxModel.names[i], times= (n.speciesStates))))
+  
+  bel.Fox <- vector(mode="numeric", length= n.Foxmodels)
+  for (f in 1:n.Foxmodels){
+    #bel.Fox[f] <- extract.ModelBelief(fM.enum[f], belief)
+    bel.Fox[f] <- extract.ModelBelief(foxModel.names[f], belief)
+  }
+  bel.Species <- vector(mode="numeric", length= n.Speciesmodels)
+  for (s in 1:n.Speciesmodels){
+    #bel.Species[s] <- extract.ModelBelief(spM.enum[s], belief)
+    bel.Species[s] <- extract.ModelBelief(speciesModel.names[s], belief)
+  }
+  belief.out <- list("foxBelief"= bel.Fox, "speciesBelief"=bel.Species)
+  return(belief.out)
+}
+
+
+#simulate_MOMDPtrajectory generates a simulated trajectory of a species under the optimal management strategy (assuming uncertainty about the true model)
+#inputs: 
+#' @param initialState the starting state for the simulation; format is c("fox_0", "species_0", "foxModel_0", "speciesModel_0")
+#' @param initialBelief  a (nFoxModels * n.SpeciesModels)x1 numeric vector containing the initial belief in each model
+#' @param policy the optimal policy, as an R data frame (generated by read.policy)
+#' @param Transition_matrices  a pre-loaded Transition matrices Rda object, as calculated in the script above.
+#' @param Tmax length of the trajectory
+#' @param benefitRatio 3-element vector containing the benefits of being in LocExtSp, LowSp and HighSp respectively
+#' @example 
+#' n.Foxmodels <- 9
+#' n.Speciesmodels <- 3
+#' initialState <- c("LowF", "HighSp", "F2", "S3")
+#' initialBelief <- rep(1/(n.Foxmodels * n.Speciesmodels), times= (n.Foxmodels*n.Speciesmodels)) #assume initial belief is uniform
+#' benefitRatio <- c(-20,0,0)
+#' outfileName <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+#' policy <- read.policy(outfileName)
+#' Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2, recoverProb=0) #run from get.transition example 
+#' maxT <- 10
+#' #outputs:
+#a list object containing simulation outcomes under different strategies
+simulate_MOMDPtrajectory <- function(initialState, initialBelief, policy, Transition.matrices, maxT, benefitRatio){
+  
+  #build a rewards table
+  reward.table <- create.reward.table(benefitRatio, CostRatio= c(0,0.5,1,1.18,1.68,2.18))
+  
+  names(initialState) <- c("fox_0", "species_0", "foxModel_0", "speciesModel_0")
+  
+  ##get a list of actions
+  actions.list <-unique(Transition.matrices$FoxTransitionModel[[1]][,2]) #extract the actions from Transition.matrices
+  n.actions <- length(actions.list)
+
+  #specify the possible state names
+  foxState.lookup <- c("HighF", "LowF")
+  specState.lookup <- c("LocExtSp", "LowSp","HighSp")
+  n.foxStates <- length(foxState.lookup)
+  n.speciesStates <- length(specState.lookup)
+  
+  foxStates.out <-  as.vector(sapply(1:n.foxStates, function(i) rep(foxState.lookup[i], times= (n.speciesStates))))
+  speciesStates.out <-  rep(specState.lookup, times= n.foxStates)
+  outState.names <- sapply(1:(n.foxStates*n.speciesStates), function(i) paste(foxStates.out[i],"_",speciesStates.out[i], sep=""))
+  
+  #initialise
+  simulated.states <- data.frame(matrix(nrow=maxT+1, ncol= (length(initialState)+1)))
+  colnames(simulated.states) <- c(names(initialState), "reward")
+  simulated.states[1,] <- c(initialState,0)
+  beliefMat <- data.frame(matrix(nrow=maxT+1, ncol= (n.Foxmodels*n.Speciesmodels)))
+  actionMat <- data.frame(matrix(nrow=maxT+1, ncol=1))
+  
+  belief <- initialBelief
+  beliefMat[1,] <- initialBelief
+  
+  for (t in 1:maxT){
+    action <- getOptAction(policy, belief, n.actions)
+    
+    prob.dist <- getRowprobT(initialState, action, Transition.matrices)
+    #simulate a next state:
+    nextState <- sample(outState.names, size=1, replace=TRUE, prob=prob.dist)
+    
+    #update initialState using nextState. Note have to split the outState.names variable on "_" to recover the fox and species state
+    #note that foxModel and SpeciesModel don't change and that speciesPrev -> species_0 (same for fox)
+    nextState[1:2] <- c(strsplit(nextState, split="_")[[1]][1], strsplit(nextState, split="_")[[1]][2])
+    nextState[3:4] <- initialState[3:4]
+    simulated.states[t+1,1:length(initialState)] <- nextState
+    names(nextState) <- names(initialState)
+    
+    #update belief
+    belief <- updateBelief(belief, initialState, nextState, action, Transition.matrices)
+    beliefMat[t+1,] <- belief  #iteratively store belief. Rows represent time
+    actionMat[t+1,1] <- action
+    
+    #update initial state
+    initialState <- nextState
+    
+    reward.index <- which((reward.table$actionsList==action) & (reward.table$species_1== initialState["species_0"]))
+    simulated.states[t+1,ncol(simulated.states)] <- reward.table$Reward[reward.index] 
+    
+  }
+  simulated.statesMOMDP <- list(simulated.states, beliefMat, actionMat)
+  names(simulated.statesMOMDP) <- c("simulated.states", "belief", "MOMDPaction")
+  return(simulated.statesMOMDP)
+}
+
+## simulate_MOMDP wraps simulate_MOMDPtrajectory for nSims and creates some summary stats for plotting
+simulate.MOMDP <- function(nSims, maxT, initialState, initialBelief, policy, Transition.matrices, benefitRatio){
+  ##get a list of actions
+  actions.list <-unique(Transition.matrices$FoxTransitionModel[[1]][,2]) #extract the actions from Transition.matrices
+  n.actions <- length(actions.list)
+  
+  #initialise
+  simulation.out <- vector(mode="list", length=nSims)
+  simulation.indices <- simulation.out
+  simulated.beliefs <- vector(mode="list", length=nSims)
+  simulated.actions <- matrix(nrow=nSims, ncol= maxT+1)
+  as.action.inds <- matrix(nrow=nSims, ncol= maxT)
+  
+  for (i in 1:nSims){
+    MOMDPsim<- simulate_MOMDPtrajectory(initialState, initialBelief, policy, Transition.matrices, maxT, benefitRatio)
+    
+    simulation.out[[i]] <- MOMDPsim$simulated.states
+    simulation.out[[i]][,6] <- cumsum(simulation.out[[i]][,5] )
+    
+    simulated.beliefs[[i]] <- MOMDPsim$belief
+    simulated.actions[i,] <- unlist(MOMDPsim$MOMDPaction)
+    
+    simulation.indices[[i]] <- data.frame(matrix(nrow=maxT+1, ncol= (length(initialState)+2))) #initialise
+    #simulation.indices[[i]] <- matrix(nrow=maxT+1, ncol= (length(initialState)+1)) #initialise
+    #get the average values for each column by first converting to index values
+    for (t in 1:(maxT+1)){
+      as.inds <- getStateIndices(unlist(simulation.out[[i]][t,1:4]))
+      simulation.indices[[i]][t,] <- as.numeric(c(as.inds, simulation.out[[i]][t,5], simulation.out[[i]][t,6]))
+    }
+    for (t in 1:maxT){
+      as.action.inds[i,t] <- getActionIndex(simulated.actions[i,t+1])
+    }
+  }
+  
+  
+  #simplify to an array
+  simulation.indices.asArray <-array(unlist(simulation.indices), dim = c(nrow(simulation.indices[[1]]), ncol(simulation.indices[[1]]), length(simulation.indices)))
+  simulation.beliefs.asArray <-array(unlist(simulated.beliefs), dim = c(nrow(simulated.beliefs[[1]]), ncol(simulated.beliefs[[1]]), length(simulated.beliefs)))
+  simulation.actions.asArray <-as.action.inds #array(unlist(simulated.actions), dim = c(nrow(simulated.actions[[1]]), ncol(simulated.actions[[1]]), length(simulated.actions)))
+  
+  #get average values across nSims for each timestep
+  meanSims <- apply(simulation.indices.asArray, c(1,2), mean)
+  meanBeliefs <- apply(simulation.beliefs.asArray, c(1,2), mean) #sums to 1
+  meanActions <- apply(simulation.actions.asArray, 2, mean) 
+  #get the simulation SE across nSims for each timestep
+  stdErrSims <- apply(simulation.indices.asArray, c(1,2), function(x) sd(x)/sqrt(length(x)))
+  stdErrBelSims <- apply(simulation.beliefs.asArray, c(1,2), function(x) sd(x)/sqrt(length(x)))
+  lower.meanSims <- meanSims- stdErrSims #get the upper and lower error bounds by adding/subtracting the SE of the mean
+  upper.meanSims <- meanSims+ stdErrSims
+  
+  lower.meanBeliefs <- meanBeliefs- stdErrBelSims #get the upper and lower error bounds by adding/subtracting the SE of the mean
+  upper.meanBeliefs <- meanBeliefs+ stdErrBelSims
+  
+  #get the average frequency of selection for the different management actions in each timestep
+  simulated.actions2 <- data.frame(simulated.actions)
+  action.counts <- matrix(nrow= length(actions.list), ncol= maxT+1)
+  rownames(action.counts) <- actions.list
+  for (i in 1:(maxT+1)){ #make sure all factor levels are represented
+    simulated.actions2[,i] <- factor(simulated.actions2[,i], levels = actions.list)
+    action.counts[,i] <- t(as.numeric(table(simulated.actions2[,i])))
+  }
+  action.counts <- action.counts/nSims
+  
+  
+  output <- list(meanSims, stdErrSims, lower.meanSims, upper.meanSims, meanBeliefs, stdErrBelSims, lower.meanBeliefs, upper.meanBeliefs, action.counts) #group the outputs into an output object
+  names(output) <- c("meanSims", "stdErrSims", "lower.meanSims", "upper.meanSims", "meanBeliefs", "stdErrBelSims", "lower.meanBeliefs", "upper.meanBeliefs", "action.freq") 
+  return(output)
+}
+
+#########
+
+#simulate.MOMDP.belief is a function that simulated belief evoluiton over time and prepares the
+# outputs for plotting with ggplot. It wraps simulate.MOMDP and stores the belief outputs.
+#importantly it uses the same seed as prepare.plot set.seed= (1234), so if the seed is changed in one function,
+# it should also be changed in the other
+simulate.MOMDP.belief <- function(nSims, maxT, initialState, initialBelief, policy, Transition.matrices, benefitRatio){
+  set.seed(1234)
+    MOMDP.out <- simulate.MOMDP(nSims, maxT, initialState, initialBelief, policy, Transition.matrices, benefitRatio)  #policy is loaded when the POMDPX is solved
+  
+    mean.BelSims <- as.data.frame(MOMDP.out[[5]]) 
+    lower.BelSims <- as.data.frame(MOMDP.out[[7]]) 
+    upper.BelSims <- as.data.frame(MOMDP.out[[8]]) 
+    mean.BelSims <- cbind(1:nrow(mean.BelSims), mean.BelSims)
+    lower.BelSims <- cbind(1:nrow(mean.BelSims), lower.BelSims)
+    upper.BelSims <- cbind(1:nrow(mean.BelSims), upper.BelSims)
+    
+    colnames(mean.BelSims) <- c("time", paste("model_", 1:(n.Foxmodels*n.Speciesmodels), sep=""))
+    colnames(lower.BelSims) <- c("time", paste("model_", 1:(n.Foxmodels*n.Speciesmodels), "_lower", sep=""))
+    colnames(upper.BelSims) <- c("time", paste("model_", 1:(n.Foxmodels*n.Speciesmodels), "_upper", sep=""))
+    
+    mean.BelSims.fox <- as.data.frame(matrix(nrow=nrow(mean.BelSims), ncol= n.Foxmodels))
+    mean.BelSims.species <- as.data.frame(matrix(nrow=nrow(mean.BelSims), ncol= n.Speciesmodels))
+    colnames(mean.BelSims.fox) <- foxModel.names
+    colnames(mean.BelSims.species) <- speciesModel.names
+    lower.BelSims.fox <- mean.BelSims.fox
+    lower.BelSims.species <- mean.BelSims.species
+    upper.BelSims.fox <- mean.BelSims.fox
+    upper.BelSims.species <- mean.BelSims.species
+    
+    for (t in 1:(maxT+1)){
+      mod.Bel <- extract.modelBelief2(mean.BelSims[t,seq(2,n.Foxmodels*n.Speciesmodels+1,1)])
+      mean.BelSims.fox[t,] <- mod.Bel$foxBelief
+      mean.BelSims.species[t,] <- mod.Bel$speciesBelief
+      
+      mod.Bel_L <- extract.modelBelief2(lower.BelSims[t,seq(2,n.Foxmodels*n.Speciesmodels+1,1)])
+      lower.BelSims.fox[t,] <- mod.Bel_L$foxBelief
+      lower.BelSims.species[t,] <- mod.Bel_L$speciesBelief
+      
+      mod.Bel_H <- extract.modelBelief2(upper.BelSims[t,seq(2,n.Foxmodels*n.Speciesmodels+1,1)])
+      upper.BelSims.fox[t,] <- mod.Bel_H$foxBelief
+      upper.BelSims.species[t,] <- mod.Bel_H$speciesBelief
+    }
+    mean.BelSims.fox <- cbind(1:nrow(mean.BelSims.fox), mean.BelSims.fox)
+    mean.BelSims.species <- cbind(1:nrow(mean.BelSims.species), mean.BelSims.species)
+    upper.BelSims.fox <- cbind(1:nrow(upper.BelSims.fox), upper.BelSims.fox)
+    upper.BelSims.species <- cbind(1:nrow(upper.BelSims.species), upper.BelSims.species)
+    lower.BelSims.fox <- cbind(1:nrow(lower.BelSims.fox), lower.BelSims.fox)
+    lower.BelSims.species <- cbind(1:nrow(lower.BelSims.species), lower.BelSims.species)
+    colnames(mean.BelSims.fox)[1] <- "time"
+    colnames(mean.BelSims.species)[1] <- "time"
+    colnames(upper.BelSims.fox)[1] <- "time"
+    colnames(upper.BelSims.species)[1] <- "time"
+    colnames(lower.BelSims.fox)[1] <- "time"
+    colnames(lower.BelSims.species)[1] <- "time"
+    
+    #format for ggplot
+    df.Belief <- melt(mean.BelSims, id.vars= "time", variable.name = "series")
+    df.Belief2 <- melt(lower.BelSims, id.vars= "time", variable.name = "series")
+    df.Belief3 <- melt(upper.BelSims, id.vars= "time", variable.name = "series")
+    df.Belief <- cbind(df.Belief, df.Belief2$value,df.Belief3$value)
+    colnames(df.Belief)[3:5] <- c("mean", "lower", "upper")
+    
+    df.Belief.fox <- melt(mean.BelSims.fox, id.vars= "time", variable.name = "series")
+    df.Belief2.fox <- melt(lower.BelSims.fox, id.vars= "time", variable.name = "series")
+    df.Belief3.fox <- melt(upper.BelSims.fox, id.vars= "time", variable.name = "series")
+    df.Belief.fox <- cbind(df.Belief.fox, df.Belief2.fox$value,df.Belief3.fox$value)
+    colnames(df.Belief.fox)[3:5] <- c("mean", "lower", "upper")
+    
+    df.Belief.species <- melt(mean.BelSims.species, id.vars= "time", variable.name = "series")
+    df.Belief2.species <- melt(lower.BelSims.species, id.vars= "time", variable.name = "series")
+    df.Belief3.species <- melt(upper.BelSims.species, id.vars= "time", variable.name = "series")
+    df.Belief.species <- cbind(df.Belief.species, df.Belief2.species$value,df.Belief3.species$value)
+    colnames(df.Belief.species)[3:5] <- c("mean", "lower", "upper")
+    
+    output <- list(df.Belief, df.Belief.fox, df.Belief.species) #group the outputs into an output object
+    names(output) <- c("Belief", "ThreatBelief", "SpeciesBelief") 
+    return(output)
+  }
+
+
+
   ###################################################
   #plot simulated outputs
   

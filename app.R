@@ -82,6 +82,12 @@ initSpeciesBel <-  matrix(data=(1/n.Speciesmodels), nrow=1, ncol= n.Speciesmodel
 colnames(initThreatBel) <- foxModel.names
 colnames(initSpeciesBel) <- speciesModel.names
 
+#shorten the initial belief values for input to the UI (allows reactive input without getting sum >1)
+initSpeciesBel_short <- matrix(initSpeciesBel[,-length(initSpeciesBel)], nrow=1, ncol= (n.Speciesmodels-1))
+colnames(initSpeciesBel_short) <- head(speciesModel.names,-1)
+
+initThreatBel_short <- matrix(initThreatBel[,-length(initThreatBel)], nrow=1, ncol= (n.Foxmodels-1))
+colnames(initThreatBel_short) <- head(foxModel.names,-1)
 
 #############################################################
 #Build UI#
@@ -151,26 +157,77 @@ ui <- fluidPage(
       ) #close tabPanel
     ), #close Navbar page
     
+    tabPanel("Belief simulation",
+             strong("Simulated belief plots"),
+             br(), #add a new line
+             textOutput("TrueModelReport"),
+             plotOutput("SimPlot3", height= "300px"),
+             br(), #add a new line
+             
+             plotOutput("SimPlot4", height= "300px")
+             ),
+    
     tabPanel("Explore POMDP Solution",
+             strong("Current state"),
+             br(), #add a new line
+             div(style="display: inline-block;vertical-align:top; width: 150px;",
+                 radioButtons("threatState", "Fox State", choiceNames= list("Low", "High"), 
+                              choiceValues= list("LowF", "HighF"), selected = "LowF", inline = FALSE)),
+            
+             div(style="display: inline-block;vertical-align:top; width: 180px;",
+                  radioButtons("speciesState", "Species State", choiceNames= list("Loc. Extinct", "Low", "High"), 
+                               choiceValues= list("LocExtSp", "LowSp", "HighSp"), selected = "LowSp", inline = FALSE)),
+             br(),
              
-             strong("Inital Belief: Threat models"),
-             #elicit threat information
-             matrixInput("initThreatBel",class="numeric",
-                         value= initThreatBel,
+             strong("Initial Belief: Threat models"),
+             #elicit current belief information-- threat
+             matrixInput("initThreatBel_shorta",class="numeric",
+                         value= initThreatBel_short,
                          rows= list(names = TRUE),
                          cols= list(names= TRUE),
                          copy = TRUE,
                          paste = TRUE),
              
-             strong("Inital Belief: Species models"),
-             #elicit threat information
-             matrixInput("initSpeciesBel",class="numeric",
-                         value= initSpeciesBel,
+             textOutput("showBel1"),
+             br(),
+             
+             strong("Initial Belief: Species models"),
+             #elicit current belief information--species
+             matrixInput("initSpeciesBel_shorta",class="numeric",
+                         value= initSpeciesBel_short, #remove last value and compute reactively to ensure sum to 1
                          rows= list(names = TRUE),
                          cols= list(names= TRUE),
                          copy = TRUE,
                          paste = TRUE),
              
+             textOutput("showBel2"),
+             
+             br(),
+          actionButton("getOptimalAct", "Get Optimal Action"),
+          textOutput("OptActionVal") ,
+
+          
+          strong("Next state"),
+          br(), #add a new line
+          div(style="display: inline-block;vertical-align:top; width: 150px;",
+              radioButtons("threatState2", "Fox State", choiceNames= list("Low", "High"), 
+                           choiceValues= list("LowF", "HighF"), inline = FALSE)),
+          
+          div(style="display: inline-block;vertical-align:top; width: 180px;",
+              radioButtons("speciesState2", "Species State", choiceNames= list("Loc. Extinct", "Low", "High"),
+                           choiceValues= list("LocExtSp","LowSp", "HighSp"), inline = FALSE)),
+          br(),
+          br(),
+          textOutput("action.print"),
+          textOutput("newBelief.th"),
+          textOutput("newBelief.sp"),
+          
+          
+          HTML(
+            paste(
+              h6("(Note that if you select a state where the species goes from Locally Extinct to extant (and have zero recovery probability), the belief will return NaN)")
+            ) )
+            
     ) #close tabpanel
               
    # # Output: Tabset w/ plot, summary, and table ----
@@ -200,8 +257,28 @@ server <- function(input, output, session) {
     
     prepare.plot(benefitRatio, CostRatio, input$nSims, input$maxT, true.model, initialState,Transition.matrices,input$actionLabel)
     
-   
+    
   })
+  
+  df_belief <- reactive({
+    true.model <- c(input$foxModLabel, input$spModLabel)
+    initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
+    Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb)
+    benefitRatio= c(-input$costExt,0,0)
+    
+    beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
+    beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
+    longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
+    benefitRatio <- c(-input$costExt,0,0)
+    policy.filename <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    policy <- read.policy(policy.filename)
+    
+    simulate.MOMDP.belief(input$nSims, input$maxT, initialState, longBel, policy, Transition.matrices, benefitRatio)
+      
+  })
+  
+  #beliefSpeciesA <- reactive({input$initSpeciesBel_shorta})#, 1-sum(input$initSpeciesBel_shorta))})
+  #beliefThreatA <- reactive({input$initThreatBel_shorta})#, 1-sum(input$initThreatBel_shorta))})
   
   #generate the POMDPX file reactively
   observeEvent(input$getPOMDPX, {
@@ -229,8 +306,74 @@ server <- function(input, output, session) {
     print(paste("finished solving. Writing to:", outfileName, collapse=""))
   })
   
+  optAct.reactVals <- reactiveValues(optAct2= "do_nothing")#,
+                                     #  #make the optimal action a reactive value and initialise it
+  
+  output$showBel1 <- renderText({
+    beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
+    paste(c("The current threat belief is:", beliefThreat, collapse=""))})
+  
+  output$showBel2 <- renderText({
+    beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
+    paste(c("The current species belief is:", beliefSpecies, collapse=""))})
+  
+  
+ 
+  #get the optimal action when the button is pressed
+  observeEvent(input$getOptimalAct, {
+    print("retrieving optimal action..")
+    #print(beliefThreat)
+    beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
+    beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
+    longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
+    benefitRatio <- c(-input$costExt,0,0)
+    policy.filename <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    policy <- read.policy(policy.filename)
+    OptAct <- getOptAction(policy, longBel, n.actions)
+    #set value of reactive optact.reactVals$optAct2 so we can access this later
+    optAct.reactVals$optAct2 <- OptAct
+    #OptBel <- updateBelief(longBel, prevState, nextState, OptAct,Transition.matrices)
+    output$OptActionVal <- renderText({paste("The optimal action is ", OptAct)})
+    print("found optimal action")
+  })  
+  
+  toListen <- reactive({
+    list(input$threatState2,input$speciesState2)
+  })  #listen for both states to be input before updating
+  
+  observeEvent(toListen(), {  #react when both buttons pushed
+     beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
+     beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
+     longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
+     print(paste(c("Initial Threat Belief: ",round(beliefThreat,3)), collapse = " "))  #output to console for error checking
+     print(paste(c("Initial Species Belief: ", round(beliefSpecies,3)),collapse=" "))
+     
+     
+     initState <- c(input$threatState, input$speciesState)
+     nextState <- c(input$threatState2, input$speciesState2)
+     action <-  optAct.reactVals$optAct2  #reacts based on the value after pushing the getOptAction button, otherwise default value do_nothing
+     Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb)
+     
+     newBel <- updateBelief(longBel, initState, nextState, action,Transition.matrices)
+     
+     #convert long form belief back to short forms
+     newBel.short <- extract.modelBelief2(newBel)
+     newThreatBel <- newBel.short[[1]] 
+     newSpeciesBel <- newBel.short[[2]] 
+     print("belief updated")
+     
+     
+     output$action.print <- renderText({paste("The action applied was", action, collapse="")})
+     output$newBelief.th <- renderText({
+       paste(c("The new threat belief is", round(newThreatBel,3), collapse=""))})
+     output$newBelief.sp <- renderText({
+       paste(c("The new species belief is ", round(newSpeciesBel,3), collapse=""))})
+     
+   })
+  
 
   
+  #render the plots
   output$SimPlot2 <- renderPlot({
     true.model <- c(input$foxModLabel, input$spModLabel)
     initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
@@ -256,6 +399,67 @@ server <- function(input, output, session) {
     print(plotdf.all)
 
   }, height = 1000, units="px")
+  
+  
+  # #render the belief plots
+  output$TrueModelReport <- renderText({  #"true" model contained in initial state
+    true.model <- c(input$foxModLabel, input$spModLabel)
+    paste(c("True model:", true.model, collapse=""))})
+  
+  output$SimPlot3 <- renderPlot({
+    df.Belief.plot.fox <- df_belief()[[2]]
+    #plot Fox marginal belief
+    # df.Belief.plot.fox <- df_belief$df.Belief.fox
+    df.Belief.plot.fox$series <- factor(df.Belief.plot.fox$series)
+    plotdf.Bel.fox <- ggplot(data= df.Belief.plot.fox, aes(x=time))+
+      geom_line(aes(y=lower, group=series, colour= factor(series)), linetype="dashed", size=0.8) +
+      geom_line(aes(y=upper,group=series, colour= factor(series)), linetype="dashed", size=0.8)+
+      geom_line(aes(y=mean,group=series, colour= factor(series)), size=1.2) +
+      ylim(0,1) +
+       ggtitle("Threat Model Belief") +
+       ylab("Belief")
+     plotdf.Bel.fox <- plotdf.Bel.fox+ labs(color='Model') 
+     print(plotdf.Bel.fox)
+    }, height = 300, units="px")
+
+  output$SimPlot4 <- renderPlot({
+    #plot Species marginal belief
+    df.Belief.plot.species <- df_belief()[[3]]
+    df.Belief.plot.species$series <- factor(df.Belief.plot.species$series)
+     plotdf.Bel.species <- ggplot(data= df.Belief.plot.species, aes(x=time))+
+       geom_line(aes(y=lower, group=series, colour= factor(series)), linetype="dashed", size=0.8) +
+       geom_line(aes(y=upper,group=series, colour= factor(series)), linetype="dashed", size=0.8)+
+       geom_line(aes(y=mean,group=series, colour= factor(series)), size=1.2) +
+       ylim(0,1) +
+       ggtitle("Species Model Belief") +
+       ylab("Belief")
+     plotdf.Bel.species <- plotdf.Bel.species+ labs(color='Model') 
+     print(plotdf.Bel.species)
+  }, height = 300, units="px")
+  #   true.model <- c(input$foxModLabel, input$spModLabel)
+  #   initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
+  #   
+  #   varnames <- c("fox_0", "species_0",  "foxModel_0", "speciesModel_0", "reward")
+  #   #make a dummy dataframe containing the y limits for the plots
+  #   ddummy <-  data.frame(time=1, series=rep(varnames[-(3:4)], each=2), 
+  #                         value=c(rep(c(1:2,1,3), times=1), #fox_0 ranges from 1:2, species_0 from 1:3, ditto xxPrev_0 vars
+  #                                 -20,0)) #limit on the reward (arbitrary lower bound, what should this be?)
+  #   
+  #   #plot simulation variables
+  #   modelName <- paste("model",initialState[3],initialState[4], sep="_")
+  #   plotdf.all <- ggplot(data= df_all(), aes(x=time)) +
+  #     geom_line(aes(y=lower, group=action, colour= factor(action)), linetype="dashed", size=0.8) +
+  #     geom_line(aes(y=upper,group=action, colour= factor(action)), linetype="dashed", size=0.8)+
+  #     geom_line(aes(y=mean,group=action, colour= factor(action)), size=1.2) +
+  #     geom_blank(data= ddummy, aes(x=time, y=value)) +
+  #     facet_wrap(vars(series), scales="free_y", ncol=1)+
+  #     ggtitle(modelName) +
+  #     ylab("") +
+  #     theme(plot.title = element_text(hjust = 0.5))  #centres the plot title
+  #   plotdf.all <- plotdf.all+ labs(color='Action')
+  #   print(plotdf.all)
+  #   
+  # }, height = 1000, units="px")
 }
 ###########################################
 #call Shiny app#
