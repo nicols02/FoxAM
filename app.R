@@ -158,7 +158,8 @@ ui <- fluidPage(
   
   
         mainPanel(width= 6,
-                  plotOutput("SimPlot2")
+                  plotOutput("SimPlot2", height= "1000px")
+                  
         )
       ) #close tabPanel
     ), #close Navbar page
@@ -174,7 +175,10 @@ ui <- fluidPage(
              plotOutput("SimPlot4", height= "300px"),
              br(), #add a new line
              br(),
-             textOutput("speciesBelTerminal")
+             textOutput("speciesBelTerminal"),
+             br(),
+             strong("Action Selection Frequency during simulation"),
+             plotOutput("SimPlot_action", height= "300px")
              ),
     
     tabPanel("Explore POMDP Solution",
@@ -263,10 +267,7 @@ server <- function(input, output, session) {
     beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
     longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
     
-    
     prepare.plot(benefitRatio, input$actionCost, input$nSims, input$maxT, true.model, initialState,Transition.matrices,input$actionLabel, longBel)
-    
-    
   })
   
   df_belief <- reactive({
@@ -284,6 +285,25 @@ server <- function(input, output, session) {
     
     simulate.MOMDP.belief(input$nSims, input$maxT, initialState, longBel, policy, Transition.matrices, benefitRatio)
       
+  })
+  
+  df_simMOMDPactions <- reactive({
+    benefitRatio= c(-input$costExt,0,0)
+    
+    true.model <- c(input$foxModLabel, input$spModLabel)
+    initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
+    
+    Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb)
+  
+    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    policy <- read.policy(policy.filename)
+    
+    beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
+    beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
+    longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
+    
+    simulate.MOMDP(input$nSims, input$maxT, initialState, longBel, policy, Transition.matrices, benefitRatio)
+    
   })
   
   #beliefSpeciesA <- reactive({input$initSpeciesBel_shorta})#, 1-sum(input$initSpeciesBel_shorta))})
@@ -408,6 +428,26 @@ server <- function(input, output, session) {
     print(plotdf.all)
 
   }, height = 1000, units="px")
+  
+  
+  output$SimPlot_action <- renderPlot({
+    actionDat.long<-melt(df_simMOMDPactions()$action.freq[,-1])
+    colnames(actionDat.long)[3] <- "Frequency"
+    plotAction <- ggplot(actionDat.long, aes(x = Var2, y = Var1)) + 
+      geom_raster(aes(fill=Frequency)) + 
+      scale_fill_gradient(low="grey90", high="red") +
+      labs(x="Time", y="Action", title="MOMDP Action Selection Freq.") +
+      theme_bw() + theme(axis.text.x=element_text(size=9, angle=0, vjust=0.3),
+                         axis.text.y=element_text(size=9),
+                         plot.title=element_text(size=11))
+    print(plotAction)
+    
+  }, height = 300, units="px")
+  
+  output$threatBelTerminal <- renderText({  #print out terminal simulated belief vector
+    end.BelT <- df_belief()[[2]][df_belief()[[2]]$time== input$maxT+1,]$mean  #get the mean beliefs of each model at the terminal time
+    paste(c("Terminal Threat Belief:", round(end.BelT,3), collapse=""))})
+  
   
   
   # #render the belief plots
