@@ -4,38 +4,26 @@
 #This script writes factored transition matrices for the threat and species universal AM problem
 #It accepts expert-derived data and formats them as factored transition matrices
 
-#Viable fox models are:
+#assume three actions: A1, A2 and A3=A1+A2. A3 is assumed to be effective if either A1 or A2 are effective.
+#Viable threat models are (Do nothing is assumed to always be ineffective):
 #F1	All actions ineffective
-#F2	Ground baiting required for effectiveness (either 4- or 8- weekly replacement) (action A3 ineffective)
-#F3	Ground baiting frequency of at least 4 weeks or aerial baiting required for effectiveness (A2-A5 effective)
-#F4	Ground baiting frequency of at least 4 weeks or aerial baiting (with ground baiting) required for effectiveness (A2,A4,A5 effective)
-#F5	Ground baiting frequency of at least 4 weeks required for effectiveness (regardless of aerial baiting) (A2, A5 effective)
-#F6	Aerial baiting required for effectiveness (with or without ground baiting) (A3-A5 effective)
-#F7	Aerial baiting and some ground baiting required for effectiveness (A4, A5 effective)
-#F8	Aerial baiting and 4-weekly ground baiting required for effectiveness (A5 effective)
-#F9	All actions effective (A1-A5 effective)
+#F2	A1,A3 effective, A2 ineffective
+#F3	A1 ineffective, A2,A3 effective
+#F4	A3 effective (A1, A2 ineffective)
+#F5	Any action is effective (A1-A3 effective)
 
 #Viable species models are:
-#S1	species respond negatively to any level of fox presence (high or low fox)
-#S2	species respond negatively to high fox presence (no or limited impact of low fox density)
-#S3	species don't respond to fox presence (no impact of either high or low fox density)
+#S1	species respond negatively to any level of threat presence (high or low fox)
+#S2	species respond negatively to high threat presence (no or limited impact of low fox density)
+#S3	species don't respond to threat presence (no impact of either high or low fox density)
 
 
-#data-- to be imported from Shiny or Excel later
-#specMatInit <- matrix(data= c(0.02, 0.3, 0.015, 0.35, 0.05, 0.25, 0.025, 0.3, 0.15, 0.1, 0.1, 0.15), nrow=6, ncol=2, byrow=TRUE)
-
-#specMatInit <- matrix(data= c(0.02, 0.8, 0.015, 0.8, 0.05, 0.25, 0.025, 0.3, 0.15, 0.02, 0.1, 0.01), nrow=6, ncol=2, byrow=TRUE)
-#threatMat1 <- matrix(data= c(0.875, 0.283333333333333), nrow=1, ncol=2) #values obtained from experts (AM_elicitation_combined.xlsx)
-#threatMat2 <- matrix(data= c(0.433333333, 0.566666666666667,	0.666666667,	0.675, 
-#                             0.816666666666667,	0.866666666666667	),
-#                     nrow=1, ncol=6) #values obtained from experts (AM_elicitation_combined.xlsx)
-#recoverProb <- 0
 
 #create reward table is a function to generate a rewards table from benefit and cost values
 #benefitRatio is a 3-element vector containing the benefits of being in LocExtSp, LowSp and HighSp respectively
 #costRatio is a nactions-element vector containing the costs of each action. Default values are based on the lit review in
-# "Cost summary.xlsx" in the 'Data/Cost estimates-- SoS Database' folder of the dropbox 
-create.reward.table <- function(benefitRatio= c(-20,1,10), CostRatio= c(0,0.5,1,1.18,1.68,2.18)){
+# "Cost summary.xlsx" in the 'Data/Cost estimates-- SoS Database' folder of the dropbox, e.g. = c(0,1,1.18,2.18) 
+create.reward.table <- function(benefitRatio= c(-20,1,10), CostRatio){
   nactions <- length(CostRatio)
   rew.table <- data.frame(matrix(nrow= nactions*3, ncol= 5 ))
   colnames(rew.table) <- c("actionsList", "species_1", "Benefit", "Cost", "Reward")
@@ -54,30 +42,23 @@ create.reward.table <- function(benefitRatio= c(-20,1,10), CostRatio= c(0,0.5,1,
 #' @param threatMat1 The first threat matrix obtained from the Shiny App
 #' @param threatMat2 The second threat matrix obtained from the Shiny App
 #' @param recoverProb Allow a recovery prob-- the prob of moving from extinct to lowSp state
-#' @return An R list object containing the 9 Fox model transition matrices and the 3 Species transition matrices
+#' @return An R list object containing the 5 threat model transition matrices and the 3 Species transition matrices
 #' @examples
 #' specMatInit <- matrix(data= c(0.02, 0.3, 0.015, 0.35, 0.05, 0.25, 0.025, 0.3, 0.15, 0.1, 0.1, 0.15), nrow=6, ncol=2, byrow=TRUE)
-#' threatMat1 <- matrix(data= c(0.875, 0.283333, 0.866667, 0.3), nrow=2, ncol=2) #values obtained from experts (AM_elicitation_combined.xlsx)
-#' threatMat2 <- matrix(data= c(0.433333333,	0.566666667,	0.666666667,	0.675, 0.816666667, 0.866666667,
-#'                             0.425,	0.525,	0.616666667,	0.658333333,	0.791666667,	0.883333333),
-#'                     nrow=2, ncol=6) #values obtained from experts (AM_elicitation_combined.xlsx)
+#' threatMat1 <- matrix(data= c(0.875, 0.283333), nrow=1, ncol=2) #values obtained from experts (AM_elicitation_combined.xlsx)
+#' threatMat2 <- matrix(data= c(0.433333333,	0.666666667,	0.675, 0.866666667),
+#'                     nrow=1, ncol=4) #values obtained from experts (AM_elicitation_combined.xlsx)
 #' recoverProb <- 0  #set a recovery probability-- the prob of moving from extinct to lowSp (default 0)
 #' Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2, recoverProb=0)
 get.transition <- function(specMatInit, threatMat1, threatMat2, recoverProb){
   
-  #recoverProb <- 0  #set a recovery probability-- the prob of moving from extinct to lowSp (default 0)
-  
   #use a matrix to determine the effectiveness of actions for the 9 threat models
   #This might need to be revised later-- problem dependent
-  model.effectiveness.Mat <- data.frame(matrix(c(0,0,0,0,0,0,
-                                                 0,1,1,0,1,1,
-                                                 0,0,1,1,1,1,
-                                                 0,0,1,0,1,1,
-                                                 0,0,1,0,0,1,
-                                                 0,0,0,1,1,1,
-                                                 0,0,0,0,1,1,
-                                                 0,0,0,0,0,1,
-                                                 0,1,1,1,1,1), nrow= 9, ncol=6, byrow=TRUE)) #effectiveness of management action (col) by fox model (row)
+  model.effectiveness.Mat <- data.frame(matrix(c(0,0,0,0, #F1 All actions ineffective
+                                                 0,1,0,1, #F2 A1, A3 effective
+                                                 0,0,1,1, #F3 A2, A3 effective
+                                                 0,0,0,1, #F4 A3 effective 
+                                                 0,1,1,1), nrow= 5, ncol=4, byrow=TRUE)) #effectiveness of management action (col) by fox model (row)
   n.Foxmodels <- nrow(model.effectiveness.Mat)
   
   species.impacts.Mat <- data.frame(matrix(c(1,1,
@@ -107,16 +88,14 @@ get.transition <- function(specMatInit, threatMat1, threatMat2, recoverProb){
   #############################################
   threatMat1 <- as.data.frame(as.vector(threatMat1))
   threatMat1 <- cbind(matrix(data= c("do_nothing", "HighF",
-                                     "a5", "HighF"), nrow=2, ncol=2,byrow=TRUE), threatMat1)
+                                     "a3", "HighF"), nrow=2, ncol=2,byrow=TRUE), threatMat1)
   colnames(threatMat1)[3] <- "Pr(High)"
   
   threatMat2 <- as.data.frame(as.vector(threatMat2))
   threatMat2 <- cbind(matrix(data= c("do_nothing", "LowF",
                                      "a1",  "LowF",
                                      "a2",  "LowF",
-                                     "a3",  "LowF",
-                                     "a4", "LowF",
-                                     "a5", "LowF"), nrow=6, ncol=2,byrow=TRUE), threatMat2)
+                                     "a3", "LowF"), nrow=4, ncol=2,byrow=TRUE), threatMat2)
   colnames(threatMat2)[3] <- "Pr(Low)"
   #create a matrix of the threat and species states and interpolate the values
   req_names_threat <- matrix(NA, nrow= n.actions * n.foxStates, ncol= 2)
@@ -148,10 +127,10 @@ get.transition <- function(specMatInit, threatMat1, threatMat2, recoverProb){
   
   #interpolate the missing values (Cain 2001)
   #need to get the modifying factors for converting fox state from L->H:
-  MF_LH<- (foxMat[11,3]-foxMat[1,3])/(foxMat[12,3]-foxMat[1,3])
+  MF_LH<- (foxMat[7,3]-foxMat[1,3])/(foxMat[8,3]-foxMat[1,3])
 
   #interpolate 
-  for (i in c(3,5,7,9)){  #indices are the H states, inferred from the L states
+  for (i in c(3,5)){  #indices are the H states, inferred from the L states
     foxMat[i,3] <- (foxMat[i+1,3]-foxMat[1,3])*MF_LH + foxMat[1,3]
     foxMat[i,4] <- 1- foxMat[i,3]
   }
@@ -178,7 +157,7 @@ get.transition <- function(specMatInit, threatMat1, threatMat2, recoverProb){
   # # end for
   # ##
   
-  #create a list of the transition matrices for each fox model F1-F9
+  #create a list of the transition matrices for each fox model F1-F5
   FoxModels <- vector(mode='list', length=n.Foxmodels)
   
   for (model in 1:n.Foxmodels){  #model loop goes from 2, since F1 is always ineffective
@@ -197,9 +176,6 @@ get.transition <- function(specMatInit, threatMat1, threatMat2, recoverProb){
         dat <- dat.effective[range.vals,]
         
       }
-      #dat <- cbind(rep(paste("F", model, sep="")), dat)
-      #colnames(dat)[1] <- "model"
-      #FoxModels[[model]][,,a] <- stateDescr
       FoxModels.actions[count:(count+nrow(dat)-1),2:ncol(FoxModels.actions)] <- dat
       FoxModels.actions[count:(count+nrow(dat)-1),1] <- rep(paste("F", model, sep=""))
       count <- count+ nrow(dat)
@@ -319,10 +295,10 @@ getStateIndices <- function(state){
 #' getActionIndex converts a named action into a numeric index for the state
 #' @param state the input format for state is an action string, e.g. "a1"
 #' @example 
-#' action <- "a5"
+#' action <- "a3"
 #' getActionIndex(action)
 getActionIndex <- function(action){
-  actions.lookup <- c("do_nothing", "a1", "a2", "a3", "a4", "a5")
+  actions.lookup <- c("do_nothing", "a1", "a2", "a3")
   action.index <- which(actions.lookup== action)
   return(action.index)
 }
@@ -335,9 +311,9 @@ getActionIndex <- function(action){
 #' @example 
 #' initialState <- c("HighF", "LowSp", "F1", "S3")
 #' endState <- c("HighF", "HighSp", "F1", "S3")
-#' action <- "a5"
+#' action <- "a3"
 #' Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2, recoverProb) #(see get.transition documentation)
-#' getprobT(initialState, endState, action, Transition.matrices){
+#' getprobT(initialState, endState, action, Transition.matrices)
 #' output is probT, a numeric representing the probability of transition between the states
 getprobT <- function(initialState, endState, action, Transition.matrices){
   #script
@@ -414,7 +390,7 @@ getRowprobT <- function(initialState, action, Transition.matrices){
 #' it returns a transition matrix with a state ordering that matches Jonathan Ferrer's matlab script (so we can compare Transition matrices)
 #' inputs are:
 #' @param Transition.Matrices a (factored) transition matrices list object
-#' @param FoxMod a string containing the fox model, e.g. "F1" -> "F9"
+#' @param FoxMod a string containing the fox model, e.g. "F1" -> "F5"
 #' @param SpMod a string containing the species model, e.g. "S1" -> "S3"
 #' @example 
 #' FoxMod <- "F1"
@@ -423,8 +399,9 @@ getRowprobT <- function(initialState, action, Transition.matrices){
 #' output= a 12x12xn.actions unfactored transition matrix (stored as list)
 getTransitionMatrix <- function(Transition.matrices, FoxMod, SpMod){
   
-  n.actions <- 6
-  actions.list <- c( "do_nothing", sapply(1:(n.actions-1), function(i) paste("a",i, sep="")))
+  actions.list <- unique(Transition.matrices[[1]][[1]][,2]) #extract action names from transition matrices
+  n.actions <- length(actions.list) #6
+  #actions.list <- c( "do_nothing", sapply(1:(n.actions-1), function(i) paste("a",i, sep="")))
   
   
   #extract the indices of the fox and species models
@@ -433,6 +410,8 @@ getTransitionMatrix <- function(Transition.matrices, FoxMod, SpMod){
   
   foxState.lookup <- c("HighF", "LowF")
   specState.lookup <- c("LocExtSp", "LowSp","HighSp")
+  n.foxStates <- length(foxState.lookup)
+  n.speciesStates <- length(specState.lookup)
   nStates.unfactored <- (n.foxStates*n.speciesStates)
   states.enum <- data.frame(matrix(nrow= nStates.unfactored, ncol=2))
   
@@ -575,9 +554,10 @@ getStationaryT <- function(P){
 #' outputs: a list object containing simulation outcomes under different strategies
 #' @example 
 #' initialState <-  c("LowF", "LowSp", "F1", "S1")
-#' action <- "a5"
+#' action <- "a3"
 #' maxT <- 30
 #' benefitRatio <- c(-20,0,0)
+#' CostRatio= c(0,1,1.18,2.18)
 #' simulate_trajectory(initialState, action, Transition.matrices, maxT, benefitRatio)
 simulate_trajectory <- function(initialState, action, Transition.matrices, maxT, benefitRatio, CostRatio){
   
@@ -680,7 +660,7 @@ simulate.action <- function(nSims, maxT, initialState, action, Transition.matric
 #'benefitRatio= c(-20,0,0)
 #'nSims <- 30
 #'maxT <- 10
-#'f <- 8
+#'f <- 4
 #'s <- 2
 #'true.model <- c(foxModel.names[f], speciesModel.names[s]) #model F8S2= species respond to high fox but not low fox, only action a5 is effective
 #'initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
@@ -688,10 +668,10 @@ simulate.action <- function(nSims, maxT, initialState, action, Transition.matric
 #'Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2, recoverProb=0)
 #'prepare.plot(benefitRatio, nSims, maxT, true.model, initialState)
 #'output is a dataframe df_all, that is ready for plotting in ggplot
-prepare.plot <- function(benefitRatio, CostRatio, nSims, maxT, true.model, initialState,Transition.matrices, actions.list){
+prepare.plot <- function(benefitRatio, CostRatio, nSims, maxT, true.model, initialState,Transition.matrices, actions.list, initialBelief){
   
   #file name of the MOMDP solution (if it exists-- will check later)
-  outfileName <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+  outfileName <- paste("./pomdp_solved/", "ShinySolution","_", paste(benefitRatio, collapse="_"),".policy", sep="")
   
   #actions.list <- c( "do_nothing", "a5")
   #Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2)
@@ -702,7 +682,7 @@ prepare.plot <- function(benefitRatio, CostRatio, nSims, maxT, true.model, initi
   #library(gridExtra)
   #library(readr)
   
-  n.Foxmodels <- 9
+  n.Foxmodels <- 5
   n.Speciesmodels <- 3
   foxModel.names <- paste("F",1:n.Foxmodels, sep="")
   speciesModel.names <- paste("S",1:n.Speciesmodels, sep="")
@@ -767,6 +747,8 @@ prepare.plot <- function(benefitRatio, CostRatio, nSims, maxT, true.model, initi
   if (file.exists(outfileName)){  #if the MOMDP has been solved already, plot the MOMDP simulation
     action <- "Optimal MOMDP"
     
+    policy <- read.policy(outfileName)
+
     set.seed(1234)
     out <- simulate.MOMDP(nSims, maxT, initialState, initialBelief, policy, Transition.matrices, benefitRatio)
 
@@ -833,7 +815,7 @@ read.policy <- function(filename){
 #' @param initThreatBel is a nFoxModel-element vector containing the belief in each fox model. It must sum to 1
 #' @param initSpeciesBel is a nSpeciesModel-element vector containing the belief in each species model. It must sum to 1
 #' @example
-#' n.Foxmodels <- 9
+#' n.Foxmodels <- 5
 #' n.Speciesmodels <- 3
 #' initThreatBel <- matrix(data=rep(1/n.Foxmodels, times= n.Foxmodels), nrow=1, ncol= n.Foxmodels) #assume initial belief is uniform for prefill, allow reactive later
 #' initSpeciesBel <-  matrix(data=(1/n.Speciesmodels), nrow=1, ncol= n.Speciesmodels) 
@@ -870,7 +852,7 @@ getOptAction <- function(policy, belief, n.actions){
 #b_(t+1,y')= N* P(x'|x,y,a)b(t,y'). For each of the possible models y', this means we update the belief
 #by simply multiplying the current belief by the probability of the observed transition between states.
 #inputs: 
-#initialBelief: the initial belief vector (a n.modelsx1 numeric vector containing the probability of each hidden model F1-9 and S1-3)
+#initialBelief: the initial belief vector (a n.modelsx1 numeric vector containing the probability of each hidden model F1-5 and S1-3)
 #prevState: the state at time t (current time); this is a 2x1 vector e.g. c("HighF"  "LowSp")
 #nextState: the state at time t+1 (next time): a 2x1 vector containing the observed state in the next timestep, e.g c("HighF"  "HighSp")
 #outputs:
@@ -881,15 +863,27 @@ updateBelief <- function(initialBelief, prevState, nextState, action,Transition.
   specModelNames <- sapply(1:(n.Speciesmodels), function(i) paste("S",i, sep=""))
   
   beliefOut <- vector(mode="numeric", length= length(initialBelief))
-  for (s in 1: n.Speciesmodels){
-    for (f in 1:n.Foxmodels){
+  # for (s in 1: n.Speciesmodels){
+  #   for (f in 1:n.Foxmodels){
+  #     prevState[3:4] <- c(foxModelNames[f], specModelNames[s]) #assign the relevant model index here
+  #     nextState[3:4] <- prevState[3:4]
+  #     #ordering of models is F1S1, F1S2, F1S3, F2S1, F2S2 ...etc
+  #     i <- f +(s-1)*n.Foxmodels  ######!!!!!!!
+  #     statetransPr <- getprobT(prevState, nextState, action, Transition.matrices) #get the transiton prob assuming a particular model
+  #     beliefOut[i] <- statetransPr* initialBelief[i] #multiply prob of transition (given a model) by the belief in the model
+  #   }
+  # }
+  for (f in 1:n.Foxmodels){
+    for (s in 1: n.Speciesmodels){
       prevState[3:4] <- c(foxModelNames[f], specModelNames[s]) #assign the relevant model index here
       nextState[3:4] <- prevState[3:4]
-      i <- f +(s-1)*n.Foxmodels
+      #ordering of models is F1S1, F1S2, F1S3, F2S1, F2S2 ...etc
+      i <- s +(f-1)*n.Speciesmodels  ######!!!!!!!
       statetransPr <- getprobT(prevState, nextState, action, Transition.matrices) #get the transiton prob assuming a particular model
       beliefOut[i] <- statetransPr* initialBelief[i] #multiply prob of transition (given a model) by the belief in the model
     }
   }
+  
   beliefOut <- beliefOut/sum(beliefOut)
   return(beliefOut)
 }
@@ -899,7 +893,7 @@ updateBelief <- function(initialBelief, prevState, nextState, action,Transition.
 #fox and species models (because fox and species models are independent, i.e. P(F_i,S_i)= P(F_i)P(S_i|F_i))
 #Using this, we have that, e.g., P(F_i, S)= sum_j{F_i,S_j} for all j.
 #inputs: 
-#modName= a string containing the model name, e.g. "F1" -> "F9" or "S1"-> "S3"
+#modName= a string containing the model name, e.g. "F1" -> "F5" or "S1"-> "S3"
 #belief= a (nFoxModels * n.SpeciesModels)x1 numeric vector containing the belief in each (joint) model
 #outputs:
 #a (nFoxModelsx1) or (nSpeciesModelsx1) numeric vector containing the belief in the model 'modName'
@@ -963,7 +957,7 @@ extract.modelBelief2 <- function(belief){
 #' @param Tmax length of the trajectory
 #' @param benefitRatio 3-element vector containing the benefits of being in LocExtSp, LowSp and HighSp respectively
 #' @example 
-#' n.Foxmodels <- 9
+#' n.Foxmodels <- 5
 #' n.Speciesmodels <- 3
 #' initialState <- c("LowF", "HighSp", "F2", "S3")
 #' initialBelief <- rep(1/(n.Foxmodels * n.Speciesmodels), times= (n.Foxmodels*n.Speciesmodels)) #assume initial belief is uniform
@@ -977,7 +971,7 @@ extract.modelBelief2 <- function(belief){
 simulate_MOMDPtrajectory <- function(initialState, initialBelief, policy, Transition.matrices, maxT, benefitRatio){
   
   #build a rewards table
-  reward.table <- create.reward.table(benefitRatio, CostRatio= c(0,0.5,1,1.18,1.68,2.18))
+  reward.table <- create.reward.table(benefitRatio, CostRatio)
   
   names(initialState) <- c("fox_0", "species_0", "foxModel_0", "speciesModel_0")
   
@@ -1107,7 +1101,7 @@ simulate.MOMDP <- function(nSims, maxT, initialState, initialBelief, policy, Tra
 
 #########
 
-#simulate.MOMDP.belief is a function that simulated belief evoluiton over time and prepares the
+#simulate.MOMDP.belief is a function that simulated belief evolution over time and prepares the
 # outputs for plotting with ggplot. It wraps simulate.MOMDP and stores the belief outputs.
 #importantly it uses the same seed as prepare.plot set.seed= (1234), so if the seed is changed in one function,
 # it should also be changed in the other

@@ -53,28 +53,30 @@ rownames(specMatInit) <- c("(Not Present, Low)",
 threatMat1 <- matrix(data=0, nrow=1, ncol=2) 
 #prefilled for fox threat
 threatMat1 <- matrix(data= c(0.875, 0.283333), nrow=1, ncol=2) #values obtained from experts (AM_elicitation_combined.xlsx)
-colnames(threatMat1) <- c("P(High|A0)", "P(High|A5)")
+colnames(threatMat1) <- c("P(High|A0)", "P(High|A3)")
 rownames(threatMat1) <- c("High")
 
 #clean/empty matrix
-threatMat2 <- matrix(data=0, nrow=1, ncol=6)
+threatMat2 <- matrix(data=0, nrow=1, ncol=4)
 #prefilled for fox threat
-threatMat2 <- matrix(data= c(0.433333333, 0.566666666666667,	0.666666667,	0.675, 0.816666666666667,	0.866666666666667	),
-                     nrow=1, ncol=6) #values obtained from experts (AM_elicitation_combined.xlsx)
-colnames(threatMat2) <- c("P(Low|A0)", "P(Low|A1)","P(Low|A2)","P(Low|A3)","P(Low|A4)","P(Low|A5)")
+threatMat2 <- matrix(data= c(0.433333333,	0.666666667,	0.675, 0.866666667),
+                     nrow=1, ncol=4) #values obtained from experts (AM_elicitation_combined.xlsx)
+colnames(threatMat2) <- c("P(Low|A0)", "P(Low|A1)","P(Low|A2)","P(Low|A3)")
 rownames(threatMat2) <- c("Low")
 
 #add some variables-- we can make these reactive later
 
-n.Foxmodels <- 9
+n.Foxmodels <- 5
 n.Speciesmodels <- 3
 foxModel.names <- paste("F",1:n.Foxmodels, sep="")
 speciesModel.names <- paste("S",1:n.Speciesmodels, sep="")
 
-n.actions <- 6
+n.actions <- 4
 actions.list <- c( "do_nothing", sapply(1:(n.actions-1), function(i) paste("a",i, sep="")))
 
-CostRatio= c(0,0.5,1,1.18,1.68,2.18) #cost of actions-- maybe make this reactive?
+CostRatio= matrix(c(0,1,1.18,2.18), nrow=1) #cost of actions-- maybe make this reactive?
+colnames(CostRatio) <- actions.list
+rownames(CostRatio) <- "Action cost"
 
 #specify initial belief
 initThreatBel <- matrix(data=rep(1/n.Foxmodels, times= n.Foxmodels), nrow=1, ncol= n.Foxmodels) #assume initial belief is uniform for prefill, allow reactive later
@@ -106,6 +108,13 @@ ui <- fluidPage(
           br(),            #line break
           #numericInput("maxT", "Length of simulation",value=20,min=1, max=NA, step=1, width= '100px'),
           #numericInput("nSims", "Number of simulations",value=30,min=1, max=NA, step=1, width= '100px'),
+          matrixInput("actionCost",class="numeric",
+                      value= CostRatio,
+                      rows= list(names = TRUE),
+                      cols= list(names= TRUE),
+                      copy = TRUE,
+                      paste = TRUE),
+          br(),
           
           strong("Threat Elicitation"),
           #elicit threat information
@@ -132,21 +141,18 @@ ui <- fluidPage(
                       paste = TRUE),
           
     
-          radioButtons("foxModLabel", "Fox Model", foxModel.names, selected = "F9", inline = TRUE),
+          radioButtons("foxModLabel", "Fox Model", foxModel.names, selected = "F5", inline = TRUE),
           radioButtons("spModLabel", "Species Model", speciesModel.names, selected = "S2", inline=TRUE),
           
           checkboxGroupInput("actionLabel", "Simulated Actions", choices= actions.list,
-                             selected = c("do_nothing", "a5"), width = NULL),
+                             selected = c("do_nothing", "a3"), width = NULL),
           
           #reate action buttons for generating the pomdpx file and solving the POMDP with sarsop
           actionButton("getPOMDPX", "generate POMDPX file"),
           
           actionButton("solvePOMDP", "Solve the POMDP"),
           
-         # checkboxGroupInput(inputId, label, choices = NULL, selected = NULL,
-           #                  inline = FALSE, width = NULL, choiceNames = NULL,
-            #                 choiceValues = NULL)#radioButtons("actionLabel", "Simulated Actions", actions.list, selected = "a5", inline=TRUE),
-          
+         
           ), #end sidebarpanel
         
   
@@ -163,8 +169,12 @@ ui <- fluidPage(
              textOutput("TrueModelReport"),
              plotOutput("SimPlot3", height= "300px"),
              br(), #add a new line
-             
-             plotOutput("SimPlot4", height= "300px")
+             br(),
+             textOutput("threatBelTerminal"),
+             plotOutput("SimPlot4", height= "300px"),
+             br(), #add a new line
+             br(),
+             textOutput("speciesBelTerminal")
              ),
     
     tabPanel("Explore POMDP Solution",
@@ -230,12 +240,7 @@ ui <- fluidPage(
             
     ) #close tabpanel
               
-   # # Output: Tabset w/ plot, summary, and table ----
-  #  tabsetPanel(type = "tabs",
-  #              tabPanel("Simulate", plotOutput("SimPlot2")),
-  #              tabPanel("Explore POMDP Solution", verbatimTextOutput("summary"))
-  #            )
-              
+
       
     
   ) #close UI
@@ -254,8 +259,12 @@ server <- function(input, output, session) {
     Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb)
     #create the df for ggplot
     
+    beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
+    beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
+    longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
     
-    prepare.plot(benefitRatio, CostRatio, input$nSims, input$maxT, true.model, initialState,Transition.matrices,input$actionLabel)
+    
+    prepare.plot(benefitRatio, input$actionCost, input$nSims, input$maxT, true.model, initialState,Transition.matrices,input$actionLabel, longBel)
     
     
   })
@@ -270,7 +279,7 @@ server <- function(input, output, session) {
     beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
     longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
     benefitRatio <- c(-input$costExt,0,0)
-    policy.filename <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio, collapse="_"),".policy", sep="")
     policy <- read.policy(policy.filename)
     
     simulate.MOMDP.belief(input$nSims, input$maxT, initialState, longBel, policy, Transition.matrices, benefitRatio)
@@ -283,7 +292,7 @@ server <- function(input, output, session) {
   #generate the POMDPX file reactively
   observeEvent(input$getPOMDPX, {
     print("starting writing POMDPX file")
-    sarsop_parse(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb, benefitRatio=c(-input$costExt,0,0), CostRatio)
+    sarsop_parse(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb, benefitRatio=c(-input$costExt,0,0), input$actionCost)
     print("finished writing to \"./pomdpx_files/filename\"")
   })
   
@@ -292,11 +301,11 @@ server <- function(input, output, session) {
     print("starting solving POMDP file: please wait")
     
     #input pomdpx always has the same name (output from sarsop_parse, called by POMDPX button)
-    datfileName <- "./pomdpx_files/sarsop_input_potoroos_ShinyGrab.pomdpx"
+    datfileName <- "./pomdpx_files/sarsop_input_ShinyGrab.pomdpx"
     
     #output the solution into the /pomdp_solved directory; name according to benefitRatio
     benefitRatio=c(-input$costExt,0,0)
-    outfileName <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    outfileName <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio, collapse="_"),".policy", sep="")
     
     #write an external command for sarsop to run and call it using system(cmd)
     precision <- 1e-1  #set precision for sarsop
@@ -321,13 +330,13 @@ server <- function(input, output, session) {
  
   #get the optimal action when the button is pressed
   observeEvent(input$getOptimalAct, {
-    print("retrieving optimal action..")
+    print("retrieving optimal action...")
     #print(beliefThreat)
     beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
     beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
     longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
     benefitRatio <- c(-input$costExt,0,0)
-    policy.filename <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio, collapse="_"),".policy", sep="")
     policy <- read.policy(policy.filename)
     OptAct <- getOptAction(policy, longBel, n.actions)
     #set value of reactive optact.reactVals$optAct2 so we can access this later
@@ -381,7 +390,7 @@ server <- function(input, output, session) {
     varnames <- c("fox_0", "species_0",  "foxModel_0", "speciesModel_0", "reward")
     #make a dummy dataframe containing the y limits for the plots
     ddummy <-  data.frame(time=1, series=rep(varnames[-(3:4)], each=2), 
-                          value=c(rep(c(1:2,1,3), times=1), #fox_0 ranges from 1:2, species_0 from 1:3, ditto xxPrev_0 vars
+                          value=c(rep(c(1:2,1,3), times=1), #fox_0 ranges from 1:2, species_0 from 1:3, 
                                   -20,0)) #limit on the reward (arbitrary lower bound, what should this be?)
     
     #plot simulation variables
@@ -421,7 +430,12 @@ server <- function(input, output, session) {
      plotdf.Bel.fox <- plotdf.Bel.fox+ labs(color='Model') 
      print(plotdf.Bel.fox)
     }, height = 300, units="px")
-
+  
+  output$threatBelTerminal <- renderText({  #print out terminal simulated belief vector
+    end.BelT <- df_belief()[[2]][df_belief()[[2]]$time== input$maxT+1,]$mean  #get the mean beliefs of each model at the terminal time
+    paste(c("Terminal Threat Belief:", round(end.BelT,3), collapse=""))})
+  
+  
   output$SimPlot4 <- renderPlot({
     #plot Species marginal belief
     df.Belief.plot.species <- df_belief()[[3]]
@@ -436,6 +450,11 @@ server <- function(input, output, session) {
      plotdf.Bel.species <- plotdf.Bel.species+ labs(color='Model') 
      print(plotdf.Bel.species)
   }, height = 300, units="px")
+  
+  output$speciesBelTerminal <- renderText({  #print out terminal simulated belief vector
+    end.BelS <- df_belief()[[3]][df_belief()[[3]]$time== input$maxT+1,]$mean  #get the mean beliefs of each model at the terminal time
+    paste(c("Terminal Species Belief:", round(end.BelS,3), collapse=""))})
+  
   #   true.model <- c(input$foxModLabel, input$spModLabel)
   #   initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
   #   
