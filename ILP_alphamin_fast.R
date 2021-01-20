@@ -47,16 +47,20 @@ solve_ILP_alphamin.fast <- function(N, gamma_all, C) {
   
   
   ### BUILD PROBLEM MATRICES/INITIALIZE MODEL ---------------------------------------------
+  #switch to row entry mode (faster)
+  row.add.mode(lprec, state="on")
+  
   # Set objective function coefficients vector C
   set.objfn(lprec, zCoeffs)
-  
   
   # Add constraints
   for (i in 1:nrow(A)){
     add.constraint(lprec, A[i,], inequalities.sign[i], B[i] )
   }
   
-  
+  #turn off row entry mode
+  row.add.mode(lprec, state="off")
+
   write.lp(lprec, filename="./pomdp_solved/test.lp")  #this writes the lp setup to a file called "test.lp". Useful for debugging
   ### SOLVE PROBLEM -----------------------------------------------------------------------
   # Solve problem (for help, type ?solve.lpExtPtr)
