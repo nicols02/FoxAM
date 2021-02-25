@@ -93,22 +93,22 @@ solve_ILP_alphamin.fast <- function(N, gamma_all, C) {
 
 
 
-read.policy <- function(filename){
-  alphavectors.dat <- read.table(filename, sep="\t", header=FALSE, stringsAsFactors = FALSE)
-  alphavectors.dat <- alphavectors.dat$V1[-(1:3)] #drop the 3 preamble lines
-  alphavectors.dat <- alphavectors.dat[-length(alphavectors.dat)] #drop the end line
-  alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)  gsub(">", ">  ", alphavectors.dat[i], fixed=TRUE)) #adds a tab between the > and the first alpha vector value
-  alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)   strsplit(alphavectors.dat[i], "\\s+"))
-  alphavectors.dat <-data.frame(matrix(unlist(alphavectors.dat), nrow=length(alphavectors.dat), byrow=T), stringsAsFactors = FALSE)
-  alphavectors.dat <- alphavectors.dat[,-c(1,ncol(alphavectors.dat))]
-  alphavectors.dat[,1] <- gsub("action=", "", alphavectors.dat[,1])
-  alphavectors.dat[,2] <- gsub("obsValue=", "",alphavectors.dat[,2]) 
-  alphavectors.dat[,2] <- gsub(">", "",alphavectors.dat[,2])
-  alphavectors.dat <- data.frame(sapply(alphavectors.dat, as.numeric))
-  colnames(alphavectors.dat)[1:2] <- c("action", "obsValue")
-  return(alphavectors.dat) 
-}
-# N <- 7
+# read.policy <- function(filename){
+#   alphavectors.dat <- read.table(filename, sep="\t", header=FALSE, stringsAsFactors = FALSE)
+#   alphavectors.dat <- alphavectors.dat$V1[-(1:3)] #drop the 3 preamble lines
+#   alphavectors.dat <- alphavectors.dat[-length(alphavectors.dat)] #drop the end line
+#   alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)  gsub(">", ">  ", alphavectors.dat[i], fixed=TRUE)) #adds a tab between the > and the first alpha vector value
+#   alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)   strsplit(alphavectors.dat[i], "\\s+"))
+#   alphavectors.dat <-data.frame(matrix(unlist(alphavectors.dat), nrow=length(alphavectors.dat), byrow=T), stringsAsFactors = FALSE)
+#   alphavectors.dat <- alphavectors.dat[,-c(1,ncol(alphavectors.dat))]
+#   alphavectors.dat[,1] <- gsub("action=", "", alphavectors.dat[,1])
+#   alphavectors.dat[,2] <- gsub("obsValue=", "",alphavectors.dat[,2]) 
+#   alphavectors.dat[,2] <- gsub(">", "",alphavectors.dat[,2])
+#   alphavectors.dat <- data.frame(sapply(alphavectors.dat, as.numeric))
+#   colnames(alphavectors.dat)[1:2] <- c("action", "obsValue")
+#   return(alphavectors.dat) 
+# }
+# # N <- 7
 
 # filename <- "./pomdp_solved/ShinySolution_TOY.policy"
 # gamma_all <- read.policy(filename)

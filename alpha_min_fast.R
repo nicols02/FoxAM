@@ -1,42 +1,42 @@
 #alpha_min_fast 
 #
-#read.policy is a function that reads a sarsop .policy file and formats it into an R dataframe
-#' @param filename is a pointer to the file name where the .policy file is stored
-#' @example
-#' outfileName <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
-#' policy <- read.policy(outfileName)
-read.policy <- function(filename){
-  alphavectors.dat <- read.table(filename, sep="\t", header=FALSE, stringsAsFactors = FALSE)
-  alphavectors.dat <- alphavectors.dat$V1[-(1:3)] #drop the 3 preamble lines
-  alphavectors.dat <- alphavectors.dat[-length(alphavectors.dat)] #drop the end line
-  alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)  gsub(">", ">  ", alphavectors.dat[i], fixed=TRUE)) #adds a tab between the > and the first alpha vector value
-  alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)   strsplit(alphavectors.dat[i], "\\s+"))
-  alphavectors.dat <-data.frame(matrix(unlist(alphavectors.dat), nrow=length(alphavectors.dat), byrow=T), stringsAsFactors = FALSE)
-  alphavectors.dat <- alphavectors.dat[,-c(1,ncol(alphavectors.dat))]
-  alphavectors.dat[,1] <- gsub("action=", "", alphavectors.dat[,1])
-  alphavectors.dat[,2] <- gsub("obsValue=", "",alphavectors.dat[,2]) 
-  alphavectors.dat[,2] <- gsub(">", "",alphavectors.dat[,2])
-  alphavectors.dat <- data.frame(sapply(alphavectors.dat, as.numeric))
-  colnames(alphavectors.dat)[1:2] <- c("action", "obsValue")
-  return(alphavectors.dat) 
-}
+#' #read.policy is a function that reads a sarsop .policy file and formats it into an R dataframe
+#' #' @param filename is a pointer to the file name where the .policy file is stored
+#' #' @example
+#' #' outfileName <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+#' #' policy <- read.policy(outfileName)
+#' read.policy <- function(filename){
+#'   alphavectors.dat <- read.table(filename, sep="\t", header=FALSE, stringsAsFactors = FALSE)
+#'   alphavectors.dat <- alphavectors.dat$V1[-(1:3)] #drop the 3 preamble lines
+#'   alphavectors.dat <- alphavectors.dat[-length(alphavectors.dat)] #drop the end line
+#'   alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)  gsub(">", ">  ", alphavectors.dat[i], fixed=TRUE)) #adds a tab between the > and the first alpha vector value
+#'   alphavectors.dat <- sapply(1:length(alphavectors.dat), function(i)   strsplit(alphavectors.dat[i], "\\s+"))
+#'   alphavectors.dat <-data.frame(matrix(unlist(alphavectors.dat), nrow=length(alphavectors.dat), byrow=T), stringsAsFactors = FALSE)
+#'   alphavectors.dat <- alphavectors.dat[,-c(1,ncol(alphavectors.dat))]
+#'   alphavectors.dat[,1] <- gsub("action=", "", alphavectors.dat[,1])
+#'   alphavectors.dat[,2] <- gsub("obsValue=", "",alphavectors.dat[,2]) 
+#'   alphavectors.dat[,2] <- gsub(">", "",alphavectors.dat[,2])
+#'   alphavectors.dat <- data.frame(sapply(alphavectors.dat, as.numeric))
+#'   colnames(alphavectors.dat)[1:2] <- c("action", "obsValue")
+#'   return(alphavectors.dat) 
+#' }
 
 
-precision <- 0.01  #user-defined
-N <- 10 #user-define number of alphavectors
+#precision <- 0.01  #user-defined
+#N <- 10 #user-define number of alphavectors
 
 source('ILP_alphamin_fast.R')
 library('Rfast') #package to get faster colMaxs
 
-#filename <- "./pomdp_solved/ShinySolution_-20_0_0.policy"
+#policy.filename <- "./pomdp_solved/ShinySolution_-20_0_0.policy"
 #policy.filename <- "./pomdp_solved/ShinySolution_TOY.policy"
 #policy.filename <- "./pomdp_solved/gouldian2.policy"
-policy.filename <- "./pomdp_solved/test.policy"
+#policy.filename <- "./pomdp_solved/test.policy"
 
 #read in beliefs
 #beliefs.filename <- "./beliefs.txt"
 #beliefs.filename <- "./beliefs_gouldian2_more.txt"
-beliefs.filename <- "./sampled_beliefs_gouldian4.txt"
+#beliefs.filename <- "./sampled_beliefs_gouldian4.txt"
 
 #write a function s
 s_func <- function(alpha, alpha_hat,gamma_x.alpha, s.arg){
@@ -61,7 +61,7 @@ set_upper <- function(alpha, s.arg){
 #' before running sarsop to guarantee sensible policy graphs 
 #' @param N the desired number of alpha vectors in the reduced policy (integer, user-defined)
 #' @param precision a numeric representing the desired precision (stopping criterion for the binary search)
-#' @param policy.filename path to the (uncompressed) policy file, usually created by running sarsop
+#' @param policy.filename the (uncompressed) policy file as an R object: created by running sarsop and then by running read.policy(policy.filename)
 #' @param beliefs.filename  path to the sample beliefs file output by sarsop, by default stored in the working directory, probably called "beliefs.txt"  
 #' @return A 2-element list: reducedPolicy[[1]] returns the epsilon (gap) of the reduced policy; reducedPolicy[[2]] contains a binary vector 
 #' recording which alpha vectors to keep (1) or discard (0) in the reduced policy file.
@@ -114,6 +114,7 @@ alpha_min_fast <- function(policy.filename, beliefs.filename, precision, N){
         gamma_x.matrix <- as.matrix(gamma_x[[x]][-c(1:3)]) #extract the alpha vectors
       
         for (i in 1:n.alpha_x){ 
+          print(c("i=",i))
           alpha <- ids.x[i]                           #get the row ID of the alpha vector we are testing
           for (j in 1:n.alpha_x){
             alpha_hat <- ids.x[j]                           #get the row ID of the alpha vector we are testing
@@ -123,10 +124,10 @@ alpha_min_fast <- function(policy.filename, beliefs.filename, precision, N){
             } else {C[alpha, alpha_hat] <- 0}
           } #close j
         } #close i
-       
+      # print("i'm here!")
       } # close x
         return.lprec <- solve_ILP_alphamin.fast(N, gamma_all, C)  #first element is the status code (see ?solve.lpExtPtr), second element is the solution
-        
+
         if (return.lprec[[1]]==0){
           epsilon_upper <- epsilon
           reduced.policy <- return.lprec[[2]] 
@@ -141,14 +142,14 @@ alpha_min_fast <- function(policy.filename, beliefs.filename, precision, N){
 } #close function
   
 #run the alpha-min-fast function
-reducedPolicy <- alpha_min_fast(policy.filename, beliefs.filename, precision, N)
+#reducedPolicy <- alpha_min_fast(policy.filename, beliefs.filename, precision, N)
 
 
 
 #' print.reduced.policy writes the reduced policy from alpha-min-fast into a policy file
 #' @param N the desired number of alpha vectors in the reduced policy (integer, user-defined)
 #' @param filename.out the name of the output path
-#' @param policy.filename (relative) path to the uncompressed policy file, usually created by running sarsop
+#' @param policy.filename the filename of the (uncompressed) policy file created by running sarsop
 #' @param reducedPolicy  output list from alpha-min-fast: reducedPolicy[[1]] returns the epsilon (gap) of the reduced policy; reducedPolicy[[2]] contains a binary vector 
 #' @param maxDepthPolgraph the depth of the policy tree to be displayed (see options in sarsop polgraph command)
 #' recording which alpha vectors to keep (1) or discard (0) in the reduced policy file.
@@ -178,7 +179,7 @@ print.reduced.policy <- function(policy.filename, reducedPolicy, filename.out, m
   fileConn<-file(filename.out, open= "wt") #open in writing text mode
   
   xml_header <-  '<?xml version="1.0" encoding="ISO-8859-1"?>';
-  pomdp.filename.full <- paste(getwd(), substring(pomdp.filename,2, nchar(pomdp.filename)-1), sep="")
+  pomdp.filename.full <- paste(getwd(), substring(pomdp.filename,3, nchar(pomdp.filename)-1), sep="")
   version <-  paste('<Policy version=\"0.1\" type=\"value\" model=\"',pomdp.filename.full, '\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:noNamespaceSchemaLocation=\"policyx.xsd\">', sep="")
   alpha_header <-  paste('<AlphaVector vectorLength=\"', as.character(belief_size), '\" numObsValue=\"', as.character(n.obsVars), '\" numVectors=\"', as.character(nrow(pruned.policy)), '\">', sep="");
   
@@ -209,6 +210,7 @@ print.reduced.policy <- function(policy.filename, reducedPolicy, filename.out, m
  # cmd <- paste("./sarsop/src/polgraph.exe \"", pomdp.filename, "\" --policy-file ", filename.out, " --policy-graph ", policyGraphFileName, sep="")
   system(cmd)
   
+  return(policyGraphFileName) #return the filename so we can refer to it for plotting in the app
   
   #cmd <- "sarsop/src/polgraph.exe --policy-file pomdp_solved/reducedPolicy.policy --policy-graph pomdp_solved/reducedPolicyGraph.dot pomdpx_files/gouldian4Exp.pomdpx"
   
@@ -218,18 +220,18 @@ print.reduced.policy <- function(policy.filename, reducedPolicy, filename.out, m
   
 }
   
-maxDepthPolgraph= 3
-filename.out <- "pomdp_solved/reducedPolicy.policy"
+#maxDepthPolgraph= 2
+#filename.out <- "pomdp_solved/reducedPolicy.policy"
 #pomdp.filename <- "pomdpx_files/sarsop_input_ShinyGrab.pomdpx"
 #pomdp.filename <- "pomdpx_files/gouldian4Exp.pomdpx"  #read the pomdp filename automatically in the function
-print.reduced.policy(policy.filename, reducedPolicy,  filename.out)
+#print.reduced.policy(policy.filename, reducedPolicy,  filename.out)
 
 
 
-library(DiagrammeR)
+#library(DiagrammeR)
 #install.packages('DiagrammeR')
-policyGraphFileName <- 'pomdp_solved/reducedPolicyGraph.dot'
-grViz(policyGraphFileName, engine = "dot")
+#policyGraphFileName <- 'pomdp_solved/reducedPolicyGraph.dot'
+#grViz(policyGraphFileName, engine = "dot")
 
 
 

@@ -23,6 +23,32 @@ if (library(reshape2,logical.return=TRUE)==FALSE) {
   install.packages("reshape2")
   library("reshape2")
 }
+if (library(DiagrammeR,logical.return=TRUE)==FALSE) {
+  install.packages("DiagrammeR")
+  library("DiagrammeR")
+}
+if (library(Rfast,logical.return=TRUE)==FALSE) {
+  install.packages("Rfast")
+  library("Rfast")
+}
+if (library(rsvg,logical.return=TRUE)==FALSE) {
+  install.packages("rsvg")
+  library("rsvg")
+}
+if (library(DiagrammeRsvg,logical.return=TRUE)==FALSE) {
+  install.packages("DiagrammeRsvg")
+  library("DiagrammeRsvg")
+}
+if (library(magrittr,logical.return=TRUE)==FALSE) {
+  install.packages("magrittr")
+  library("magrittr")
+}
+if (library(dplyr,logical.return=TRUE)==FALSE) {
+  install.packages("dplyr")
+  library("dplyr")
+}
+
+
 
 
 # library(shiny)
@@ -32,7 +58,7 @@ if (library(reshape2,logical.return=TRUE)==FALSE) {
 
 source("generate_transition_matrices.R", local=TRUE)#local=environment() )
 source("sarsop_parse_Shiny.R", local=TRUE)#local=environment() )
-
+source("alpha_min_fast.R", local=TRUE)
 
 ######### SET UP THE DATA COLLECTION MATRICES ###################
 #clean/empty matrix
@@ -74,7 +100,7 @@ speciesModel.names <- paste("S",1:n.Speciesmodels, sep="")
 n.actions <- 4
 actions.list <- c( "do_nothing", sapply(1:(n.actions-1), function(i) paste("a",i, sep="")))
 
-CostRatio= matrix(c(0,1,1.18,2.18), nrow=1) #cost of actions-- maybe make this reactive?
+CostRatio= matrix(c(0,1,1.2,2.2), nrow=1) #cost of actions-- maybe make this reactive?
 colnames(CostRatio) <- actions.list
 rownames(CostRatio) <- "Action cost"
 
@@ -104,7 +130,8 @@ ui <- fluidPage(
           div(style="display: inline-block;vertical-align:top; width: 180px;",numericInput("nSims", "Number of simulations",value=30,min=1, max=NA, step=1)),
           br(),            #line break
           div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("recoverProb", "Recovery Prob",value=0,min=0, max=1, step=0.1)),
-          div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("costExt", "Cost of Extinction",value=20,min=0, max=NA, step=1)),
+          br(),            #line break
+          div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("costExt", "Benefit of nonextinction",value=20,min=0, max=NA, step=1)),
           br(),            #line break
           #numericInput("maxT", "Length of simulation",value=20,min=1, max=NA, step=1, width= '100px'),
           #numericInput("nSims", "Number of simulations",value=30,min=1, max=NA, step=1, width= '100px'),
@@ -149,6 +176,10 @@ ui <- fluidPage(
           
           #reate action buttons for generating the pomdpx file and solving the POMDP with sarsop
           actionButton("getPOMDPX", "generate POMDPX file"),
+          br(),
+          div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("SARSOPtol", "MOMDP tolerance",value=0.01,min=0, max=1, step=0.01)),
+          
+          br(), 
           
           actionButton("solvePOMDP", "Solve the POMDP"),
           
@@ -242,9 +273,25 @@ ui <- fluidPage(
               h6("(Note that if you select a state where the species goes from Locally Extinct to extant (and have zero recovery probability), the belief will return NaN)")
             ) )
             
-    ) #close tabpanel
-              
-
+    ), #close tabpanel
+    
+    
+     tabPanel("Policy graph",
+              h4(strong("Policy graph plot")),
+              br(),
+              div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("precision_alphamin", "Desired tolerance for alphamin",value=0.05,min=0, max=NA, step=0.01)),
+              br(),  
+              div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("numvect_alphamin", "Max number of alphavectors",value=10,min=0, max=NA, step=1)),
+              br(),  
+              actionButton("alphaMinSolve", "Compress Policy"),
+              br(),
+              h6("Note that Compress Policy takes some time to run."),
+              h6("You can observe progress via the print messages in the RStudio console"),
+              h6("The button compresses the policy using the alpha-min-fast algorithm and plots a policy graph."),
+              h6("When completed, output .dot and .svg files are saved to the ./pomdp_solved folder.")#,
+              #grVizOutput('polgraphImg', width = "100%", height = "760px") 
+     )          
+    
       
     
   ) #close UI
@@ -253,9 +300,11 @@ ui <- fluidPage(
 ##########################################
 #write server#
 server <- function(input, output, session) {
+  benefitRatio <- reactive({ c(0,input$costExt,input$costExt) })  #set benefitRatio for all functions based on input value
+  
   
   df_all <- reactive({
-    benefitRatio= c(-input$costExt,0,0)
+    #benefitRatio= c(0,input$costExt,input$costExt)
     
     true.model <- c(input$foxModLabel, input$spModLabel)
     initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
@@ -267,42 +316,44 @@ server <- function(input, output, session) {
     beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
     longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
     
-    prepare.plot(benefitRatio, input$actionCost, input$nSims, input$maxT, true.model, initialState,Transition.matrices,input$actionLabel, longBel)
+    
+    outfileName1 <- paste("./pomdp_solved/", "ShinySolution","_", paste(benefitRatio(), collapse="_"),".policy", sep="")
+    prepare.plot(benefitRatio(), input$actionCost, input$nSims, input$maxT, true.model, initialState,Transition.matrices,input$actionLabel, longBel, outfileName1)
   })
   
   df_belief <- reactive({
     true.model <- c(input$foxModLabel, input$spModLabel)
     initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
     Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb)
-    benefitRatio= c(-input$costExt,0,0)
+    #benefitRatio= c(0,input$costExt,input$costExt)
     
     beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
     beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
     longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
-    benefitRatio <- c(-input$costExt,0,0)
-    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    
+    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio(), collapse="_"),".policy", sep="")
     policy <- read.policy(policy.filename)
     
-    simulate.MOMDP.belief(input$nSims, input$maxT, initialState, longBel, policy, Transition.matrices, benefitRatio)
+    simulate.MOMDP.belief(input$nSims, input$maxT, initialState, longBel, policy, Transition.matrices, benefitRatio())
       
   })
   
   df_simMOMDPactions <- reactive({
-    benefitRatio= c(-input$costExt,0,0)
+    #benefitRatio= c(0,input$costExt,input$costExt)
     
     true.model <- c(input$foxModLabel, input$spModLabel)
     initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
     
     Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb)
   
-    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio(), collapse="_"),".policy", sep="")
     policy <- read.policy(policy.filename)
     
     beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
     beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
     longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
     
-    simulate.MOMDP(input$nSims, input$maxT, initialState, longBel, policy, Transition.matrices, benefitRatio)
+    simulate.MOMDP(input$nSims, input$maxT, initialState, longBel, policy, Transition.matrices, benefitRatio())
     
   })
   
@@ -312,7 +363,9 @@ server <- function(input, output, session) {
   #generate the POMDPX file reactively
   observeEvent(input$getPOMDPX, {
     print("starting writing POMDPX file")
-    sarsop_parse(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb, benefitRatio=c(-input$costExt,0,0), input$actionCost)
+    runName <- "ShinyGrab"
+    outputFileName <- paste("pomdpx_files/sarsop_input_", runName,".pomdpx", sep="")
+    sarsop_parse(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb, benefitRatio(), input$actionCost, outputFileName)
     print("finished writing to \"./pomdpx_files/filename\"")
   })
   
@@ -324,11 +377,11 @@ server <- function(input, output, session) {
     datfileName <- "./pomdpx_files/sarsop_input_ShinyGrab.pomdpx"
     
     #output the solution into the /pomdp_solved directory; name according to benefitRatio
-    benefitRatio=c(-input$costExt,0,0)
-    outfileName <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    #benefitRatio=c(0,input$costExt,input$costExt)
+    outfileName <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio(), collapse="_"),".policy", sep="")
     
     #write an external command for sarsop to run and call it using system(cmd)
-    precision <- 1e-1  #set precision for sarsop
+    precision <- input$SARSOPtol#1e-1  #set precision for sarsop
     cmd <- paste("./sarsop/src/pomdpsol.exe \"", datfileName, "\" --precision ", precision, " --timeout 100 --output ", outfileName, sep="")
     system(cmd)
     
@@ -355,8 +408,8 @@ server <- function(input, output, session) {
     beliefSpecies <- c(input$initSpeciesBel_shorta, 1-sum(input$initSpeciesBel_shorta))
     beliefThreat <- c(input$initThreatBel_shorta, 1-sum(input$initThreatBel_shorta))
     longBel <- getLongFormatBelief(beliefThreat, beliefSpecies) #convert to long format belief
-    benefitRatio <- c(-input$costExt,0,0)
-    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio, collapse="_"),".policy", sep="")
+    #benefitRatio <- c(0,input$costExt,input$costExt)
+    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio(), collapse="_"),".policy", sep="")
     policy <- read.policy(policy.filename)
     OptAct <- getOptAction(policy, longBel, n.actions)
     #set value of reactive optact.reactVals$optAct2 so we can access this later
@@ -495,30 +548,177 @@ server <- function(input, output, session) {
     end.BelS <- df_belief()[[3]][df_belief()[[3]]$time== input$maxT+1,]$mean  #get the mean beliefs of each model at the terminal time
     paste(c("Terminal Species Belief:", round(end.BelS,3), collapse=""))})
   
-  #   true.model <- c(input$foxModLabel, input$spModLabel)
-  #   initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
-  #   
-  #   varnames <- c("fox_0", "species_0",  "foxModel_0", "speciesModel_0", "reward")
-  #   #make a dummy dataframe containing the y limits for the plots
-  #   ddummy <-  data.frame(time=1, series=rep(varnames[-(3:4)], each=2), 
-  #                         value=c(rep(c(1:2,1,3), times=1), #fox_0 ranges from 1:2, species_0 from 1:3, ditto xxPrev_0 vars
-  #                                 -20,0)) #limit on the reward (arbitrary lower bound, what should this be?)
-  #   
-  #   #plot simulation variables
-  #   modelName <- paste("model",initialState[3],initialState[4], sep="_")
-  #   plotdf.all <- ggplot(data= df_all(), aes(x=time)) +
-  #     geom_line(aes(y=lower, group=action, colour= factor(action)), linetype="dashed", size=0.8) +
-  #     geom_line(aes(y=upper,group=action, colour= factor(action)), linetype="dashed", size=0.8)+
-  #     geom_line(aes(y=mean,group=action, colour= factor(action)), size=1.2) +
-  #     geom_blank(data= ddummy, aes(x=time, y=value)) +
-  #     facet_wrap(vars(series), scales="free_y", ncol=1)+
-  #     ggtitle(modelName) +
-  #     ylab("") +
-  #     theme(plot.title = element_text(hjust = 0.5))  #centres the plot title
-  #   plotdf.all <- plotdf.all+ labs(color='Action')
-  #   print(plotdf.all)
-  #   
-  # }, height = 1000, units="px")
+  observeEvent(input$alphaMinSolve, {
+    maxDepthPolgraph <- 2 #depth of policy tree (recommend not greater than 4 for readability)  
+    # benefitRatio= c(0,input$costExt,input$costExt)  #c(-20,0,0)
+    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio(), collapse="_"),".policy", sep="")
+    
+    #policy.filename <- "./pomdp_solved/test.policy"
+   # policy <- read.policy(policy.filename)
+    beliefs.filename <- "beliefs.txt"
+    precision_a <- input$precision_alphamin#0.05  #user-defined
+    N <- input$numvect_alphamin #10 #user-define number of alphavectors
+    
+    #run the alpha-min-fast function
+    print("Commencing alpha-min-fast algorithm. Please wait")
+    print(c("precision_a=", precision_a))
+    print(c("policy.filename=", policy.filename))
+    print(c("beliefs.filename=", beliefs.filename))
+    print(c("N=", N))
+    reducedPolicy <- alpha_min_fast(policy.filename, beliefs.filename, precision_a, N)
+    
+    
+    filename.out <- "pomdp_solved/reducedPolicy.policy"
+    print(paste("Alpha-min-fast completed. Saving output file in .dot format to: ", filename.out, sep=""))
+    policyGraphFileName <- print.reduced.policy(policy.filename, reducedPolicy,  filename.out)  #writes to 
+    print("Policy file saved. Rendering plot")
+    # policyGraphFileName <- 'pomdp_solved/reducedPolicyGraph.dot'
+    plotdf.policyGr <- grViz(policyGraphFileName, engine = "dot")
+    plotdf.policyGr  #plot to Shiny output
+    #install.packages('rsvg')
+    #install.packages('DiagrammeRsvg')
+    #library(rsvg)
+    #library(DiagrammeRsvg)
+    
+    #save policy graph plot as a pdf-- tends not to display well if polgraph is big: use svg instead
+    imgName <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".pdf", sep="")
+    plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_pdf(imgName)
+    
+    #save policy graph plot as a pdf
+    imgNameSVG <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".svg", sep="")
+    plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG)
+    print(paste("Policy graph saved to", imgNameSVG, sep=""))
+    
+  })
+  
+  # output$polgraphImg <- renderGrViz({
+  #    #plot policy graph to specified depth using sarsop polgraph function
+  #    maxDepthPolgraph <- 2 #depth of policy tree (recommend not greater than 4 for readability)  
+  #   # benefitRatio= c(0,input$costExt,input$costExt)  #c(-20,0,0)
+  #    policy.filename <- paste("./pomdp_solved/ShinySolution_", paste(benefitRatio(), collapse="_"),".policy", sep="")
+  #    
+  #    #policy.filename <- "./pomdp_solved/test.policy"
+  #    policy <- read.policy(policy.filename)
+  #    beliefs.filename <- "beliefs.txt"
+  #    precision_a <- input$precision_alphamin#0.05  #user-defined
+  #    N <- input$numvect_alphamin#10 #user-define number of alphavectors
+  #    
+  #    #run the alpha-min-fast function
+  #    print("Commencing alpha-min-fast algorithm. Please wait")
+  #    reducedPolicy <- alpha_min_fast(policy.filename, beliefs.filename, precision_a, N)
+  #    
+  #    
+  #    filename.out <- "pomdp_solved/reducedPolicy.policy"
+  #    print(paste("Alpha-min-fast completed. Saving output file in .dot format to: ", filename.out, sep=""))
+  #    policyGraphFileName <- print.reduced.policy(policy.filename, reducedPolicy,  filename.out)  #writes to 
+  #    print("Policy file saved. Rendering plot")
+  #   # policyGraphFileName <- 'pomdp_solved/reducedPolicyGraph.dot'
+  #    plotdf.policyGr <- grViz(policyGraphFileName, engine = "dot")
+  #    plotdf.policyGr  #plot to Shiny output
+  #    #install.packages('rsvg')
+  #    #install.packages('DiagrammeRsvg')
+  #    #library(rsvg)
+  #    #library(DiagrammeRsvg)
+  #    
+  #    #save policy graph plot as a pdf-- tends not to display well if polgraph is big: use svg instead
+  #    imgName <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".pdf", sep="")
+  #    plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_pdf(imgName)
+  #    
+  #    #save policy graph plot as a pdf
+  #    imgNameSVG <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".svg", sep="")
+  #    plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG)
+  #     
+  #    
+  #   #  ##ATTEMPT TO CLEAN POLICY GRAPH: 
+  #   #  #FIRST, STRIP OUT BELIEF IN DOMINANT MODEL FROM DOT FILE; THEN MATCH NODES AND EDGES AND RENAME WITH FEWER NODES
+  #   #  #read in dot as character; detect all occurrences of  "\1A" and delete the number before it (belief in dominant model)
+  #   #  dat <- readChar(policyGraphFileName, file.info(policyGraphFileName)$size)  #in case you need to read the dot file into R as string
+  #   #  #d <- substr(dat, 1, 100)
+  #   #  
+  #   #  data <- read.table(file(policyGraphFileName),sep='\n', quote= "") 
+  #   #  nrowsNode <- grep("root", data[,1])[2]-1 #get second occurrence of 'root'; this is the first line of edge descriptions 
+  #   #    for (i in 3:nrowsNode){
+  #   #      d <- data[i,]
+  #   #     startChar <- regexpr("(F.,S.)",d)[1] + attr(regexpr("(F.,S.)",d), "match.length")
+  #   #     endChar <- regexpr("\\lA",d)[1]
+  #   #     strReplace <- paste(substr(d,1,startChar),substr(d,endChar-1, nchar(d)), sep=" ")
+  #   #     data[i,] <- strReplace
+  #   #    }
+  #   # 
+  #   #  #separate out the node names and their labels
+  #   #  nodesData <- matrix(data=NA, nrow= nrowsNode-2, ncol=5)
+  #   #  nodesData[,1] <- data[3:nrowsNode,]
+  #   #  for (i in 1:nrow(nodesData)){
+  #   #    nodesData[i,2] <- substr(nodesData[i,1], 1, regexpr("label=",nodesData[i,1])[1]-2)
+  #   #    nodesData[i,3] <- substr(nodesData[i,1], regexpr("label=",nodesData[i,1])[1]-2, nchar(nodesData[i,1]))
+  #   #  }
+  #   #  nodesData[,4] <- match(nodesData[,3], unique(nodesData[,3]))  #indices based on matches
+  #   #  nodesData[,5] <- paste("x", nodesData[,4], sep="")  #new names for each node-- now need to replace names in the edges part of the file based on the mapping between cols 2 and 5
+  #   #  nodesData[1,5] <- "root" #keep the name of the root node
+  #   #  
+  #   #  #replace the nodenames in the original file with their unique identifiers from nodeData[,5]
+  #   #  data.edit <- data
+  #   #  for (i in 1:nrow(nodesData)){
+  #   #   data.edit <- data.frame(lapply(data.edit, function(x) {gsub(pattern=nodesData[i,2], replacement= nodesData[i,5], x)}))
+  #   #  }  
+  #   #  #delete unneccessary nodes
+  #   #   data.edit2 <- unique(data.edit)
+  #   #   
+  #   # #now need to sum and normalize all incoming probabilities to each node (using edges definitions)  
+  #   #   nrowsNode2 <- grep("root", data.edit2[,1])[2]-1 #get second occurrence of 'root'; this is the first line of edge descriptions 
+  #   #   nrowsEdge2 <- nrow(data.edit2)- nrowsNode2
+  #   #   #separate out the node names and their labels
+  #   #   edgesData <- matrix(data=NA, nrow= nrowsEdge2, ncol=4)
+  #   #   edgesData[,1] <- data.edit2[(nrowsNode2+1):nrow(data.edit2),1]
+  #   #   for (i in 1:nrowsEdge2){
+  #   #     d <- data.edit2[i+nrowsNode2,]
+  #   #     startChar <- regexpr(")",d)[1]  
+  #   #     endChar <- regexpr("\\\\",d)[1]  #escape the double backslash
+  #   #     strReplace <- paste(substr(d,1,startChar),substr(d,endChar, nchar(d)), sep=" ") #extract the string for comparisons
+  #   #     probD <- as.numeric(substr(d,startChar+1, endChar-1)) #extract the probabiity of the edge for computation
+  #   #     edgesData[i,2] <- strReplace
+  #   #     edgesData[i,3] <- probD
+  #   #   }
+  #   #   edgesData[,4] <- match(edgesData[,2], unique(edgesData[,2]))  #indices based on matches
+  #   #   #group edges by same index and sum
+  #   #   colnames(edgesData) <- c("raw", "matchString","prob","index")
+  #   #   edgesData <- as.data.frame(edgesData)
+  #   #   edgesData$prob <- as.numeric(edgesData$prob)
+  #   #   edgesData$index <- as.numeric(edgesData$index)
+  #   #   edgeDatCut <- edgesData %>% 
+  #   #                 select(index, prob,matchString)  %>% 
+  #   #                 group_by(index, matchString) %>% 
+  #   #                 summarise(sum(prob))
+  #   #   colnames(edgeDatCut)[3] <- "sumProb"
+  #   #   #now need to normalise the outgoing probabilities to ensure sum =1###########
+  #   #   
+  #   #   #reconstruct the raw string with the new probabilities
+  #   #   for (i in 1:nrow(edgeDatCut)){
+  #   #     d <- edgeDatCut$matchString[i]
+  #   #     startChar <- regexpr(")",d)[1] 
+  #   #     endChar <- nchar(d)- nchar("\\l\"];")
+  #   #     #edgeDatCut[i,4] <- paste(substr(d,1,startChar), " ", edgeDatCut$sumProb[i], substr(d,startChar+1,nchar(d)), sep="")
+  #   #     edgeDatCut[i,4] <- paste(substr(d,1,startChar), " ", edgeDatCut$sumProb[i], "\\l\"];", sep="") #cull observation since always 1
+  #   #   }
+  #   #   edgeDatCut[nrow(edgeDatCut),4] <- "}" #remove NA created by sumprob
+  #   #   nodesformatted <- as.data.frame(data.edit2[(1:nrowsNode2),1])
+  #   #   edgesformatted <- as.data.frame(edgeDatCut[,4])
+  #   #   names(nodesformatted) <- names(edgesformatted)
+  #   #   data.edit3 <- rbind(nodesformatted, edgesformatted)
+  #   #   
+  #   #  
+  #   #  #write the edited policy graph back to text file and plot as before
+  #   #  fileout <- paste(substr(policyGraphFileName,1,nchar(policyGraphFileName)-4), "Edited.dot",sep="")
+  #   #  
+  #   #  write.table(data.edit3, file= fileout,row.names= FALSE, col.names= FALSE, quote=FALSE)
+  #   #  plotdf.policyGr2 <- grViz(fileout, engine = "dot")
+  #   #  
+  #   #  imgNameSVG2 <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision,"Edited.svg", sep="")
+  #   #  plotdf.policyGr2 %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG2)
+  #    
+  #  })
+  
+
 }
 ###########################################
 #call Shiny app#

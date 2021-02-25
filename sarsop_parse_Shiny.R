@@ -42,6 +42,7 @@
 #' @param threatMat2 The second threat matrix obtained from the Shiny App
 #' @param recoverProb Allow a recovery prob-- the prob of moving from extinct to lowSp state
 #' @param benefitRatio 3-vector; the benefits of being each each species state (LExt, Low, High; from app)
+#' @param outputFileName the file name to output to
 #' @return A pomdpx file, written to /pomdpx_files
 #' @examples
 #' specMatInit <- matrix(data= c(0.02, 0.8, 0.015, 0.8, 0.05, 0.25, 0.025, 0.3, 0.15, 0.02, 0.1, 0.01), nrow=6, ncol=2, byrow=TRUE)
@@ -52,16 +53,17 @@
 #' ExtinctCost <- 20
 #' CostRatio <-  c(0,1,1.18,2.18)
 #' benefitRatio= c(-20,1,10)
-sarsop_parse <- function(specMatInit, threatMat1, threatMat2, recoverProb, benefitRatio, CostRatio){
+sarsop_parse <- function(specMatInit, threatMat1, threatMat2, recoverProb, benefitRatio, CostRatio, outputFileName){
   
   source('sarsop_parse_functions.R')  #source some functions that we need to write the pomdpx files
   
   #speciesName <- "potoroos"
-  runName <- "ShinyGrab"
+  #runName <- "ShinyGrab"
   discount <- 0.9
   
   #define an output file that we will write to.
-  output.file <- paste("pomdpx_files/sarsop_input_", runName,".pomdpx", sep="")
+  #output.file <- paste("pomdpx_files/sarsop_input_", runName,".pomdpx", sep="")
+  output.file <- outputFileName 
   
   
   #use a matrix to determine the effectiveness of actions for the 9 threat models

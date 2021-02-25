@@ -23,7 +23,7 @@
 #benefitRatio is a 3-element vector containing the benefits of being in LocExtSp, LowSp and HighSp respectively
 #costRatio is a nactions-element vector containing the costs of each action. Default values are based on the lit review in
 # "Cost summary.xlsx" in the 'Data/Cost estimates-- SoS Database' folder of the dropbox, e.g. = c(0,1,1.18,2.18) 
-create.reward.table <- function(benefitRatio= c(-20,1,10), CostRatio){
+create.reward.table <- function(benefitRatio, CostRatio){
   nactions <- length(CostRatio)
   rew.table <- data.frame(matrix(nrow= nactions*3, ncol= 5 ))
   colnames(rew.table) <- c("actionsList", "species_1", "Benefit", "Cost", "Reward")
@@ -32,7 +32,7 @@ create.reward.table <- function(benefitRatio= c(-20,1,10), CostRatio){
   rew.table$actionsList <-  as.vector(sapply(1:nactions, function(i){rep(action.names[i], times=3)}))
   rew.table$Benefit <- rep(benefitRatio, times= nactions)
   rew.table$Cost <- as.vector(sapply(1:nactions, function(i){rep(CostRatio[i], times=3)}))
-  rew.table$Reward <- rew.table$Benefit-rew.table$Cost
+  rew.table$Reward <- rew.table$Benefit-rew.table$Cost + max(rew.table$Cost) #add on max cost to ensure all rewards are positive (necessary for alpha-min)
   return(rew.table)
 }
 
@@ -656,6 +656,8 @@ simulate.action <- function(nSims, maxT, initialState, action, Transition.matric
 #' @param maxT is the length of simulation (integer)
 #' @param true.model is a 2-element string vector containing the names of the "true" fox and species models that will be simulated
 #' @param Transition.matrices is the transition matrices (from get.transition.matrcies function above)
+#' @param actions.list is a list of the names of the actions that the user wants to plot
+#' @param outfileName is the name of the policy file for the solved POMDP
 #' @example
 #'benefitRatio= c(-20,0,0)
 #'nSims <- 30
@@ -668,10 +670,10 @@ simulate.action <- function(nSims, maxT, initialState, action, Transition.matric
 #'Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2, recoverProb=0)
 #'prepare.plot(benefitRatio, nSims, maxT, true.model, initialState)
 #'output is a dataframe df_all, that is ready for plotting in ggplot
-prepare.plot <- function(benefitRatio, CostRatio, nSims, maxT, true.model, initialState,Transition.matrices, actions.list, initialBelief){
+prepare.plot <- function(benefitRatio, CostRatio, nSims, maxT, true.model, initialState,Transition.matrices, actions.list, initialBelief,outfileName ){
   
   #file name of the MOMDP solution (if it exists-- will check later)
-  outfileName <- paste("./pomdp_solved/", "ShinySolution","_", paste(benefitRatio, collapse="_"),".policy", sep="")
+  #outfileName <- paste("./pomdp_solved/", "ShinySolution","_", paste(benefitRatio, collapse="_"),".policy", sep="")
   
   #actions.list <- c( "do_nothing", "a5")
   #Transition.matrices <- get.transition(specMatInit, threatMat1, threatMat2)
