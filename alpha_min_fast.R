@@ -1,6 +1,6 @@
 #alpha_min_fast 
 #
-#' #read.policy is a function that reads a sarsop .policy file and formats it into an R dataframe
+#' #' #read.policy is a function that reads a sarsop .policy file and formats it into an R dataframe
 #' #' @param filename is a pointer to the file name where the .policy file is stored
 #' #' @example
 #' #' outfileName <- paste("./pomdp_solved/", "potoroo","_", paste(benefitRatio, collapse="_"),".policy", sep="")
@@ -14,11 +14,11 @@
 #'   alphavectors.dat <-data.frame(matrix(unlist(alphavectors.dat), nrow=length(alphavectors.dat), byrow=T), stringsAsFactors = FALSE)
 #'   alphavectors.dat <- alphavectors.dat[,-c(1,ncol(alphavectors.dat))]
 #'   alphavectors.dat[,1] <- gsub("action=", "", alphavectors.dat[,1])
-#'   alphavectors.dat[,2] <- gsub("obsValue=", "",alphavectors.dat[,2]) 
+#'   alphavectors.dat[,2] <- gsub("obsValue=", "",alphavectors.dat[,2])
 #'   alphavectors.dat[,2] <- gsub(">", "",alphavectors.dat[,2])
 #'   alphavectors.dat <- data.frame(sapply(alphavectors.dat, as.numeric))
 #'   colnames(alphavectors.dat)[1:2] <- c("action", "obsValue")
-#'   return(alphavectors.dat) 
+#'   return(alphavectors.dat)
 #' }
 
 
@@ -28,7 +28,7 @@
 source('ILP_alphamin_fast.R')
 library('Rfast') #package to get faster colMaxs
 
-#policy.filename <- "./pomdp_solved/ShinySolution_-20_0_0.policy"
+#policy.filename <- "./pomdp_solved/ShinySolution_0_20_20.policy"
 #policy.filename <- "./pomdp_solved/ShinySolution_TOY.policy"
 #policy.filename <- "./pomdp_solved/gouldian2.policy"
 #policy.filename <- "./pomdp_solved/test.policy"
@@ -39,7 +39,7 @@ library('Rfast') #package to get faster colMaxs
 #beliefs.filename <- "./sampled_beliefs_gouldian4.txt"
 
 #write a function s
-s_func <- function(alpha, alpha_hat,gamma_x.alpha, s.arg){
+s_func <- function(alpha, alpha_hat, s.arg){
   max_s.diff <- max(s.arg[alpha,]- s.arg[alpha_hat,])
   return(max_s.diff)
 }
@@ -79,6 +79,7 @@ alpha_min_fast <- function(policy.filename, beliefs.filename, precision, N){
   #read in beliefs
   sample.beliefs <- read.table(beliefs.filename, header=FALSE, stringsAsFactors = FALSE)
   sample.beliefs <- as.matrix(sample.beliefs)
+  #sample.beliefs <- sample.beliefs[1:200,] #use just the first 200 beliefs-- use a random sample later
   #sample.beliefs <- matrix(unlist(sample.beliefs),dim(sample.beliefs)[1], dim(sample.beliefs)[2] ,byrow=F)  # convert to matrix so we can do dot products
   
   #compute and store the dot product
@@ -99,35 +100,81 @@ alpha_min_fast <- function(policy.filename, beliefs.filename, precision, N){
   delta <- epsilon_upper-epsilon_lower
     
   iteration <- 0
+  
+  fill_C <- function(i){  #function to vectorize the 'i' loop 
+    alpha <- ids.x[i]
+    s.val <- sapply(1:n.alpha_x, function(y) max(s.arg[alpha,]- s.arg[ids.x[y],]))
+    alpha_hat <- ids.x[1:n.alpha_x]
+    C[alpha, alpha_hat] <- max(sign(epsilon- s.val),0)  #replace loop with max sign- this seems fastest way to assign without lopp
+    return(C)
+  }
     
   ## run the while loop that implements the binary search for alpha-min-fast
   C <- matrix(0, nrow= nrow(gamma_all), ncol= nrow(gamma_all))
+  ptm <- proc.time()
     while (delta > precision){
       iteration <- iteration+1
       print(paste("iteration", as.character(iteration))) #print out the iteration number to console
       delta <- epsilon_upper-epsilon_lower
       epsilon <- (epsilon_lower+epsilon_upper)/2
+      print(paste("delta=", delta))
+      ptm2 <- proc.time()-ptm
+      print(paste("time elapsed=", ptm2[3]))
       
-      for (x in 1:n.obsVars){ 
+      
+      for (x in 1:n.obsVars){   #try making this a function and passing a vector argument 1:nobsVars?
         n.alpha_x <- nrow(gamma_x[[x]])       #number of alpha vectors for observable variable x
         ids.x <- gamma_x[[x]]$id              #id values of the alpha vectors relevant to observable variable x
-        gamma_x.matrix <- as.matrix(gamma_x[[x]][-c(1:3)]) #extract the alpha vectors
+        #gamma_x.matrix <- as.matrix(gamma_x[[x]][-c(1:3)]) #extract the alpha vectors
       
-        for (i in 1:n.alpha_x){ 
-          print(c("i=",i))
-          alpha <- ids.x[i]                           #get the row ID of the alpha vector we are testing
-          for (j in 1:n.alpha_x){
-            alpha_hat <- ids.x[j]                           #get the row ID of the alpha vector we are testing
-            s.val <- s_func(alpha, alpha_hat,gamma_x.matrix, s.arg)
-            if (s.val<= epsilon){
-              C[alpha, alpha_hat] <- 1
-            } else {C[alpha, alpha_hat] <- 0}
-          } #close j
-        } #close i
-      # print("i'm here!")
+ 
+        #ptm <- proc.time()
+        C <- fill_C(1:n.alpha_x)
+        #ptm2 <- proc.time()-ptm
+        
+        # ptm <- proc.time()
+        #  for (i in 1:n.alpha_x){ 
+        # #   print(c("i=",i))
+        #   alpha <- ids.x[i]    
+        #    
+        #    
+        #    s.val <- sapply(1:n.alpha_x, function(y) max(s.arg[alpha,]- s.arg[ids.x[y],]))
+        #    
+        # #   #ptm <- proc.time()
+        #    alpha_hat <- ids.x[1:n.alpha_x]
+        #    C[alpha, alpha_hat] <- max(sign(epsilon- s.val),0)  #replace loop with max sign- this seems fastest way to assign without lopp
+        # #   #C[alpha, alpha_hat] <- ifelse(epsilon- s.val>0, 1,0)
+        # #   #ptm2 <- proc.time()-ptm
+        # #    # ptm <- proc.time()
+        # #    # for (j in 1:n.alpha_x){
+        # #    #   alpha_hat <- ids.x[j]
+        # #    # if (s.val[j]<= epsilon){
+        # #    #   C[alpha, alpha_hat] <- 1
+        # #    # } else {C[alpha, alpha_hat] <- 0}
+        # #    # }
+        # #    # ptm2 <- proc.time()-ptm
+        # #   
+        # #   # #get the row ID of the alpha vector we are testing
+        # #   #  for (j in 1:n.alpha_x){
+        # #   #    alpha_hat <- ids.x[j]                           #get the row ID of the alpha vector we are testing
+        # #   #    
+        # #   #    #s.val <- sapply(alpha_hat, function(x) max(s.arg[alpha,]- s.arg[alpha_hat,]))
+        # #   #    s.val <- max(s.arg[alpha,]- s.arg[alpha_hat,])
+        # #   #    print(s.val)
+        # #   # # 
+        # #   # #   #s.val <- s_func(alpha, alpha_hat, s.arg)
+        # #   # #   if (s.val<= epsilon){
+        # #   # #     C[alpha, alpha_hat] <- 1
+        # #   # #   } else {C[alpha, alpha_hat] <- 0}
+        # #   #  } #close j
+        #  } #close i
+        # ptm2 <- proc.time()- ptm
+       print(paste("x=", x, "complete"))
+       #print(paste("delta=", delta))
       } # close x
+      
         return.lprec <- solve_ILP_alphamin.fast(N, gamma_all, C)  #first element is the status code (see ?solve.lpExtPtr), second element is the solution
-
+        print("ILP solved")
         if (return.lprec[[1]]==0){
           epsilon_upper <- epsilon
           reduced.policy <- return.lprec[[2]] 
@@ -135,6 +182,8 @@ alpha_min_fast <- function(policy.filename, beliefs.filename, precision, N){
         else {epsilon_lower <- epsilon}
          
   }  #close while
+  ptm2 <- proc.time()-ptm
+  print(paste("time elapsed=", ptm2[3]))
       
   reducedPolicy <- list(epsilon, reduced.policy)
   return(reducedPolicy)

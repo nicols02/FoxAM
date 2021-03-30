@@ -43,6 +43,10 @@ if (library(magrittr,logical.return=TRUE)==FALSE) {
   install.packages("magrittr")
   library("magrittr")
 }
+# if (library(dplyr,logical.return=TRUE)==FALSE) {
+#   install.packages("plyr")
+#   library("plyr")
+# }
 if (library(dplyr,logical.return=TRUE)==FALSE) {
   install.packages("dplyr")
   library("dplyr")
@@ -121,7 +125,7 @@ colnames(initThreatBel_short) <- head(foxModel.names,-1)
 #Build UI#
 ui <- fluidPage(
   
-  navbarPage("Universal Adaptive Management",
+  navbarPage("Threat-Species Adaptive Management",
   
     tabPanel("Simulate",
       sidebarLayout(
@@ -178,10 +182,11 @@ ui <- fluidPage(
           actionButton("getPOMDPX", "generate POMDPX file"),
           br(),
           div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("SARSOPtol", "MOMDP tolerance",value=0.01,min=0, max=1, step=0.01)),
+          div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("SARSOPtimeout", "MOMDP timeout (sec)",value=100,min=0, step=10)),
           
           br(), 
           
-          actionButton("solvePOMDP", "Solve the POMDP"),
+          actionButton("solvePOMDP", "Solve the MOMDP"),
           
          
           ), #end sidebarpanel
@@ -216,7 +221,7 @@ ui <- fluidPage(
              strong("Current state"),
              br(), #add a new line
              div(style="display: inline-block;vertical-align:top; width: 150px;",
-                 radioButtons("threatState", "Fox State", choiceNames= list("Low", "High"), 
+                 radioButtons("threatState", "Threat State", choiceNames= list("Low", "High"), 
                               choiceValues= list("LowF", "HighF"), selected = "LowF", inline = FALSE)),
             
              div(style="display: inline-block;vertical-align:top; width: 180px;",
@@ -255,7 +260,7 @@ ui <- fluidPage(
           strong("Next state"),
           br(), #add a new line
           div(style="display: inline-block;vertical-align:top; width: 150px;",
-              radioButtons("threatState2", "Fox State", choiceNames= list("Low", "High"), 
+              radioButtons("threatState2", "Threat State", choiceNames= list("Low", "High"), 
                            choiceValues= list("LowF", "HighF"), inline = FALSE)),
           
           div(style="display: inline-block;vertical-align:top; width: 180px;",
@@ -319,7 +324,7 @@ server <- function(input, output, session) {
     
     outfileName1 <- paste("./pomdp_solved/", "ShinySolution","_", paste(benefitRatio(), collapse="_"),".policy", sep="")
     prepare.plot(benefitRatio(), input$actionCost, input$nSims, input$maxT, true.model, initialState,Transition.matrices,input$actionLabel, longBel, outfileName1)
-  })
+    })
   
   df_belief <- reactive({
     true.model <- c(input$foxModLabel, input$spModLabel)
@@ -382,7 +387,7 @@ server <- function(input, output, session) {
     
     #write an external command for sarsop to run and call it using system(cmd)
     precision <- input$SARSOPtol#1e-1  #set precision for sarsop
-    cmd <- paste("./sarsop/src/pomdpsol.exe \"", datfileName, "\" --precision ", precision, " --timeout 100 --output ", outfileName, sep="")
+    cmd <- paste("./sarsop/src/pomdpsol.exe \"", datfileName, "\" --precision ", precision, " --timeout ", input$SARSOPtimeout," --output ", outfileName, sep="")
     system(cmd)
     
     print(paste("finished solving. Writing to:", outfileName, collapse=""))
@@ -460,15 +465,20 @@ server <- function(input, output, session) {
     true.model <- c(input$foxModLabel, input$spModLabel)
     initialState <- c("HighF", "LowSp", true.model[1], true.model[2])
     
-    varnames <- c("fox_0", "species_0",  "foxModel_0", "speciesModel_0", "reward")
-    #make a dummy dataframe containing the y limits for the plots
-    ddummy <-  data.frame(time=1, series=rep(varnames[-(3:4)], each=2), 
-                          value=c(rep(c(1:2,1,3), times=1), #fox_0 ranges from 1:2, species_0 from 1:3, 
-                                  -20,0)) #limit on the reward (arbitrary lower bound, what should this be?)
+    df_all2 <- df_all()
+    df_all2$series <-  plyr::mapvalues(df_all2$series, from = c("fox_0", "species_0", "reward", "sum_reward"), to = c("(a) Threat", "(b) Species", "(c) Reward", "(d) Sum Rewards"))
+    df_all2$action[which(df_all2$action== "do_nothing")] <- "Do nothing"
     
+    #varnames <- c("fox_0", "species_0",  "foxModel_0", "speciesModel_0", "reward")
+    varnames <- levels(df_all2$series)
+    #make a dummy dataframe containing the y limits for the plots
+    ddummy <-  data.frame(time=1, series=rep(varnames[1:3], each=2), 
+                          value=c(rep(c(1:2,1,3), times=1), #fox_0 ranges from 1:2, species_0 from 1:3, 
+                                  0,20)) #limit on the reward (arbitrary lower bound, what should this be?)
+
     #plot simulation variables
-    modelName <- paste("model",initialState[3],initialState[4], sep="_")
-    plotdf.all <- ggplot(data= df_all(), aes(x=time)) +
+    modelName <- paste("Model",initialState[3],initialState[4], sep="_")
+    plotdf.all <- ggplot(data= df_all2, aes(x=time)) +
       geom_line(aes(y=lower, group=action, colour= factor(action)), linetype="dashed", size=0.8) +
       geom_line(aes(y=upper,group=action, colour= factor(action)), linetype="dashed", size=0.8)+
       geom_line(aes(y=mean,group=action, colour= factor(action)), size=1.2) +
@@ -584,7 +594,7 @@ server <- function(input, output, session) {
     imgName <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".pdf", sep="")
     plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_pdf(imgName)
     
-    #save policy graph plot as a pdf
+    #save policy graph plot as a svg
     imgNameSVG <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".svg", sep="")
     plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG)
     print(paste("Policy graph saved to", imgNameSVG, sep=""))
