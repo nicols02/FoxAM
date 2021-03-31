@@ -63,6 +63,7 @@ if (library(dplyr,logical.return=TRUE)==FALSE) {
 source("generate_transition_matrices.R", local=TRUE)#local=environment() )
 source("sarsop_parse_Shiny.R", local=TRUE)#local=environment() )
 source("alpha_min_fast.R", local=TRUE)
+source("draw_polgraph.R", local=TRUE)
 
 ######### SET UP THE DATA COLLECTION MATRICES ###################
 #clean/empty matrix
@@ -181,7 +182,7 @@ ui <- fluidPage(
           #reate action buttons for generating the pomdpx file and solving the POMDP with sarsop
           actionButton("getPOMDPX", "generate POMDPX file"),
           br(),
-          div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("SARSOPtol", "MOMDP tolerance",value=0.01,min=0, max=1, step=0.01)),
+          div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("SARSOPtol", "MOMDP tolerance",value=0.5,min=0, max=1, step=0.05)),
           div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("SARSOPtimeout", "MOMDP timeout (sec)",value=100,min=0, step=10)),
           
           br(), 
@@ -286,15 +287,16 @@ ui <- fluidPage(
               br(),
               div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("precision_alphamin", "Desired tolerance for alphamin",value=0.05,min=0, max=NA, step=0.01)),
               br(),  
-              div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("numvect_alphamin", "Max number of alphavectors",value=10,min=0, max=NA, step=1)),
+              div(style="display: inline-block;vertical-align:top; width: 150px;",numericInput("numvect_alphamin", "Max number of alphavectors",value=15,min=0, max=NA, step=1)),
               br(),  
               actionButton("alphaMinSolve", "Compress Policy"),
               br(),
               h6("Note that Compress Policy takes some time to run."),
               h6("You can observe progress via the print messages in the RStudio console"),
-              h6("The button compresses the policy using the alpha-min-fast algorithm and plots a policy graph."),
-              h6("When completed, output .dot and .svg files are saved to the ./pomdp_solved folder.")#,
-              #grVizOutput('polgraphImg', width = "100%", height = "760px") 
+              h6("The button compresses the policy using the alpha-min-fast algorithm and plots a policy graph below."),
+              h6("When completed, output .dot and .svg files are saved to the ./pomdp_solved folder."),
+              grVizOutput('polgraphImg', width = "100%", height = "760px") #render the policy graph
+             #imageOutput("myImage")
      )          
     
       
@@ -575,32 +577,56 @@ server <- function(input, output, session) {
     print(c("policy.filename=", policy.filename))
     print(c("beliefs.filename=", beliefs.filename))
     print(c("N=", N))
-    reducedPolicy <- alpha_min_fast(policy.filename, beliefs.filename, precision_a, N)
+    reducedPolicy <- alpha_min_fast(policy.filename, beliefs.filename, precision_a, N)  #turn off to save comp time
+     
+     
+     filename.out <- "pomdp_solved/reducedPolicy.policy"
+     print(paste("Alpha-min-fast completed. Saving output file in .dot format to: ", filename.out, sep=""))
+     policyGraphFileName <- print.reduced.policy(policy.filename, reducedPolicy,  filename.out)  #writes to 
+     print("Policy file saved. Rendering plot")
+     policyGraphFileName <- 'pomdp_solved/reducedPolicyGraph.dot'
+     plotdf.policyGr <- grViz(policyGraphFileName, engine = "dot")
+     plotdf.policyGr  #plot to Shiny output
+     
+     
+     #save policy graph plot as a pdf-- tends not to display well if polgraph is big: use svg instead
+     imgName <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".pdf", sep="")
+     plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_pdf(imgName)
+     
+     #save policy graph plot as a svg
+     imgNameSVG <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".svg", sep="")
+     plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG)
+     print(paste("Policy graph saved to", imgNameSVG, sep=""))
     
+    #plot the policy graph for the current 'true' model from the input
+    true.model <- c(input$foxModLabel, input$spModLabel)
+    belief.stationary <- df_belief()[[1]][df_belief()[[1]]$time== input$maxT+1,]$mean  #get mean beliefs of each model at the terminal time
+    Transition.matrices <- get.transition(input$SpeciesMat, input$threatMat1a, input$threatMat2a, input$recoverProb)
     
-    filename.out <- "pomdp_solved/reducedPolicy.policy"
-    print(paste("Alpha-min-fast completed. Saving output file in .dot format to: ", filename.out, sep=""))
-    policyGraphFileName <- print.reduced.policy(policy.filename, reducedPolicy,  filename.out)  #writes to 
-    print("Policy file saved. Rendering plot")
-    # policyGraphFileName <- 'pomdp_solved/reducedPolicyGraph.dot'
-    plotdf.policyGr <- grViz(policyGraphFileName, engine = "dot")
-    plotdf.policyGr  #plot to Shiny output
-    #install.packages('rsvg')
-    #install.packages('DiagrammeRsvg')
-    #library(rsvg)
-    #library(DiagrammeRsvg)
+    reducedPol <- read.policy(filename.out)
     
-    #save policy graph plot as a pdf-- tends not to display well if polgraph is big: use svg instead
-    imgName <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".pdf", sep="")
-    plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_pdf(imgName)
-    
-    #save policy graph plot as a svg
-    imgNameSVG <- paste('./pomdp_solved/polGraph_depth_', maxDepthPolgraph,'_precision_',precision_a,".svg", sep="")
-    plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG)
-    print(paste("Policy graph saved to", imgNameSVG, sep=""))
-    
+    policyGraphFileName.cond <- draw.polgraph.conditional(belief.stationary, true.model, reducedPol, Transition.matrices, threshold= 0.05)
+    #draw the policy graph
+    plotdf.policyGr <- grViz(policyGraphFileName.cond, engine = "dot")
+  
+    # #save policy graph plot as an svg
+     imgNameSVG <- paste('./pomdp_solved/polGraph_mini', true.model[1], '_', true.model[2],'.svg', sep="")
+     plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG)
+     print(paste("Policy graph saved to", imgNameSVG, sep=""))
+     
+     plotYN(1)  #set the reactive plot value to 1 after this code has been run
+     #TO DO: PLOT TO SHINY. ALSO UNCOMMENT ALPHA-MIN LINES ABOVE 
   })
   
+  plotYN <- reactiveVal(0)  #initialise a reactive value to zero= don't plot; change after the alphamin button above has been pressed
+  
+   output$polgraphImg <- renderGrViz({
+     if (plotYN()==1){
+      policyGraphFileName.cond <- './pomdp_solved/reducedPolgraph_mini.dot'
+      plotdf.policyGr <- grViz(policyGraphFileName.cond, engine = "dot")
+      plotdf.policyGr  #plot to Shiny output
+     }
+  })
   # output$polgraphImg <- renderGrViz({
   #    #plot policy graph to specified depth using sarsop polgraph function
   #    maxDepthPolgraph <- 2 #depth of policy tree (recommend not greater than 4 for readability)  
