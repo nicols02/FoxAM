@@ -27,6 +27,7 @@
   source("generate_transition_matrices.R", local=TRUE)#local=environment() )
   source("sarsop_parse_Shiny.R", local=TRUE)#local=environment() )
   source("alpha_min_fast.R", local=TRUE)
+  source("draw_polgraph.R", local=TRUE)
 
   
   ######### SET UP THE DATA COLLECTION MATRICES ###################
@@ -255,10 +256,28 @@
   plotdf.policyGr <- grViz(policyGraphFileName, engine = "dot")
   
   #save policy graph plot as a pdf-- tends not to display well if polgraph is big: use svg instead
-  imgName <- paste('./pomdp_solved/polGraphMS_depth_', maxDepthPolgraph,'_precision_',precision_a,".pdf", sep="")
+  imgName <- paste('./pomdp_solved/FiguresMS/polGraphMS_depth_', maxDepthPolgraph,'_precision_',precision_a,".pdf", sep="")
   plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_pdf(imgName)
   
   #save policy graph plot as a pdf
-  imgNameSVG <- paste('./pomdp_solved/polGraphMS_depth_', maxDepthPolgraph,'_precision_',precision_a,".svg", sep="")
+  imgNameSVG <- paste('./pomdp_solved/FiguresMS/polGraphMS_depth_', maxDepthPolgraph,'_precision_',precision_a,".svg", sep="")
   plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG)
   print(paste("Policy graph saved to", imgNameSVG, sep=""))
+  
+  
+  #plot the policy graph for the current 'true' model from the input
+ # true.model <- c(input$foxModLabel, input$spModLabel)
+  belief.stationary <- df_belief[[1]][df_belief[[1]]$time== maxT+1,]$mean  #get mean beliefs of each model at the terminal time
+  #Transition.matrices <- get.transition(SpeciesMat, threatMat1a, threatMat2a, input$recoverProb)
+  
+  reducedPol <- read.policy(filename.out)
+  
+  policyGraphFileName.cond <- draw.polgraph.conditional(belief.stationary, true.model, reducedPol, Transition.matrices, threshold= 0.05)
+  #draw the policy graph
+  plotdf.policyGr <- grViz(policyGraphFileName.cond, engine = "dot")
+  
+  # #save policy graph plot as an svg
+  imgNameSVG <- paste('./pomdp_solved/FiguresMS/polGraph_mini', true.model[1], '_', true.model[2],'.svg', sep="")
+  plotdf.policyGr %>% export_svg %>% charToRaw %>% rsvg_svg(imgNameSVG)
+  print(paste("Policy graph saved to", imgNameSVG, sep=""))
+  
